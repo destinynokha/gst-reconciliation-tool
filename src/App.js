@@ -8,9 +8,9 @@ function App() {
   const [reconciliationResults, setReconciliationResults] = useState(null);
   const [error, setError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('checking');
-  const [reconciliationType, setReconciliationType] = useState('basic');
-  const [selectedUser, setSelectedUser] = useState('');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [reconciliationType] = useState('basic'); // Default reconciliation type
+  const [selectedUser] = useState(''); // User selection not implemented yet
+  const [dateRange] = useState({ start: '', end: '' }); // Date filtering not implemented yet
 
   // Check connection on component mount
   useEffect(() => {
