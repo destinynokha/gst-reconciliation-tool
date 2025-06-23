@@ -8,9 +8,9 @@ function App() {
   const [reconciliationResults, setReconciliationResults] = useState(null);
   const [error, setError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('checking');
-  const [reconciliationType] = useState('basic'); // Default reconciliation type
-  const [selectedUser] = useState(''); // User selection not implemented yet
-  const [dateRange] = useState({ start: '', end: '' }); // Date filtering not implemented yet
+  const [reconciliationType, setReconciliationType] = useState('monthly');
+  const [selectedUser, setSelectedUser] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
   // Check connection on component mount
   useEffect(() => {
@@ -28,8 +28,14 @@ function App() {
     }
   };
 
-  // Handle reconciliation process (now works locally)
+  // Handle reconciliation process with user validation
   const handleReconciliation = async () => {
+    // Validate user selection
+    if (!selectedUser) {
+      setError('Please select a user before starting reconciliation.');
+      return;
+    }
+
     if (Object.keys(uploadedFiles).length === 0) {
       setError('Please upload at least one file before starting reconciliation.');
       return;
@@ -39,6 +45,8 @@ function App() {
     setError('');
 
     try {
+      console.log(`🔄 Starting ${reconciliationType} reconciliation for user: ${selectedUser}`);
+      
       // Step 1: Process files in browser
       console.log('🔄 Processing files...');
       const processedData = await processFiles(uploadedFiles, reconciliationType);
@@ -56,8 +64,8 @@ function App() {
 
       console.log('✅ Files processed successfully');
 
-      // Step 2: Perform reconciliation locally (no external service needed)
-      console.log('🔄 Performing local reconciliation...');
+      // Step 2: Perform reconciliation locally
+      console.log('🔄 Performing reconciliation analysis...');
       
       const reconciliationResults = performLocalReconciliation(processedData.data, {
         reconciliationType,
@@ -67,10 +75,15 @@ function App() {
         totalRecords: processedData.totalRecords
       });
 
-      // Include the processed data in results for file info display
+      // Include the processed data in results for display
       const enhancedResults = {
         ...reconciliationResults,
-        processedData: processedData.data
+        processedData: processedData.data,
+        userInfo: {
+          selectedUser,
+          reconciliationType,
+          processedAt: new Date().toISOString()
+        }
       };
       
       setReconciliationResults(enhancedResults);
@@ -429,28 +442,6 @@ function App() {
     return !isNaN(cleanStr) && !isNaN(parseFloat(cleanStr)) && isFinite(cleanStr);
   };
 
-  // Process ZIP files (requires JSZip - install with: npm install jszip)
-  const processZipFile = async (file) => {
-    try {
-      console.log('📦 Processing ZIP file...');
-      
-      // For now, ZIP processing requires additional setup
-      // This will be enabled once JSZip is installed
-      
-      return {
-        data: [],
-        error: 'ZIP file detected. To enable ZIP processing, please install JSZip: npm install jszip'
-      };
-      
-    } catch (error) {
-      console.error(`❌ ZIP processing error:`, error);
-      return {
-        data: [],
-        error: error.message
-      };
-    }
-  };
-
   // Read file as array buffer
   const readFileAsArrayBuffer = (file) => {
     return new Promise((resolve, reject) => {
@@ -572,15 +563,10 @@ function App() {
           result = await processCsvFile(file, fileType);
         } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
           result = await processExcelFile(file, fileType);
-        } else if (fileName.endsWith('.zip')) {
-          result = await processZipFile(file);
-          if (result.error && result.error.includes('install')) {
-            requiresLibraries = true;
-          }
         } else {
           result = { 
             data: [], 
-            error: `Unsupported file type. Please use .csv, .xlsx, .xls, or .zip files.` 
+            error: `Unsupported file type. Please use .csv, .xlsx, or .xls files.` 
           };
         }
 
@@ -626,7 +612,7 @@ function App() {
       let errorMessage = 'No data could be extracted from uploaded files.';
       
       if (needsLibraries) {
-        errorMessage += ' Some files may require additional libraries. For ZIP files, install JSZip: npm install jszip';
+        errorMessage += ' Please check that your files are in the correct format (Excel or CSV).';
       } else if (hasFiles) {
         errorMessage += ' Please check that your files contain valid data and are in the correct format.';
       } else {
@@ -658,13 +644,13 @@ function App() {
       errors.push('File size exceeds 50MB limit');
     }
 
-    // Check file type
+    // Check file type - accept Excel and CSV only
     const fileName = file.name.toLowerCase();
-    if (expectedType === 'excel' && !fileName.endsWith('.xlsx') && !fileName.endsWith('.xls') && !fileName.endsWith('.csv')) {
-      errors.push('Please upload an Excel file (.xlsx, .xls) or CSV file (.csv)');
-    }
-    if (expectedType === 'zip' && !fileName.endsWith('.zip')) {
-      errors.push('Please upload a ZIP file (.zip)');
+    const supportedExtensions = ['.csv', '.xlsx', '.xls'];
+    const isSupported = supportedExtensions.some(ext => fileName.endsWith(ext));
+    
+    if (!isSupported) {
+      errors.push('Please upload Excel (.xlsx, .xls) or CSV (.csv) files only');
     }
 
     return {
@@ -679,8 +665,8 @@ function App() {
 
     setError('');
 
-    // Validate file
-    const validation = validateFile(file, 'excel'); // Accept Excel, CSV, and ZIP for all types
+    // Validate file - now accepts all supported file types
+    const validation = validateFile(file, 'all');
     if (!validation.isValid) {
       setError(validation.errors.join('. '));
       return;
@@ -787,6 +773,14 @@ function App() {
           
           .upload-section {
             margin-bottom: 3rem;
+          }
+          
+          .user-section {
+            margin-bottom: 3rem;
+            background: #f8fafc;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
           }
           
           .section-title {
@@ -1000,7 +994,7 @@ function App() {
         {/* Header */}
         <header className="header">
           <h1 className="title">GST Reconciliation Tool</h1>
-          <p className="subtitle">Advanced file processing with Excel, CSV, and ZIP support</p>
+          <p className="subtitle">Reconcile GSTR-2A, GSTR-2B, Purchase Register, and IMS data</p>
           <div className={`status-indicator status-${connectionStatus}`}>
             {connectionStatus === 'connected' && '✅ System Ready'}
             {connectionStatus === 'checking' && '🔄 Checking System...'}
@@ -1008,19 +1002,79 @@ function App() {
           </div>
         </header>
 
+        {/* User Login Section */}
+        <section className="user-section">
+          <h2 className="section-title">👤 User Information</h2>
+          <div style={{display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))'}}>
+            <div>
+              <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: '500'}}>Select User:</label>
+              <select 
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="">Choose a user...</option>
+                <option value="admin">Admin User</option>
+                <option value="accountant">Accountant</option>
+                <option value="manager">Manager</option>
+                <option value="auditor">Auditor</option>
+              </select>
+            </div>
+            <div>
+              <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: '500'}}>Reconciliation Period:</label>
+              <select 
+                value={reconciliationType}
+                onChange={(e) => setReconciliationType(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '1rem'
+                }}
+              >
+                <option value="monthly">Monthly Reconciliation</option>
+                <option value="quarterly">Quarterly Reconciliation</option>
+                <option value="annual">Annual Reconciliation</option>
+                <option value="custom">Custom Period</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
         {/* File Processing Information */}
         <div className="library-info">
-          <h4>📄 File Processing Capabilities:</h4>
-          <p>• <strong>✅ CSV files (.csv)</strong> → Fully supported and processed immediately</p>
-          <p>• <strong>✅ Excel files (.xlsx/.xls)</strong> → Fully supported using ExcelJS library</p>
-          <p>• <strong>⚠️ ZIP files (.zip)</strong> → To enable: <code>npm install jszip</code></p>
-          <p>• <strong>🎯 Demo Data</strong> → Click "Try Demo Data" to see the system in action!</p>
+          <h4>📄 File Processing:</h4>
+          <p>• <strong>✅ CSV files (.csv)</strong> → Immediate processing</p>
+          <p>• <strong>✅ Excel files (.xlsx/.xls)</strong> → Full support</p>
+          <p>• <strong>🎯 Demo Data</strong> → Test reconciliation without uploading files</p>
+          <p>• <strong>📊 Results</strong> → View reconciliation analysis directly on this page</p>
         </div>
 
         {/* Upload Section */}
         <section className="upload-section">
           <h2 className="section-title">📁 Upload Files</h2>
           <div className="upload-grid">
+            {/* IMS Upload */}
+            <div className="upload-item">
+              <label>🏢 IMS Data (Excel/CSV):</label>
+              <input 
+                type="file" 
+                accept=".csv,.xlsx,.xls"
+                onChange={(e) => handleFileUpload('ims', e.target.files[0])}
+                disabled={isProcessing}
+              />
+              {uploadedFiles.ims && (
+                <div className="file-info">✅ {uploadedFiles.ims.name}</div>
+              )}
+            </div>
+
             {/* GSTR-2A */}
             <div className="upload-item">
               <label>📊 GSTR-2A (Excel/CSV):</label>
@@ -1084,7 +1138,7 @@ function App() {
           <div className="action-buttons">
             <button 
               onClick={handleReconciliation}
-              disabled={isProcessing || Object.keys(uploadedFiles).length === 0}
+              disabled={isProcessing || Object.keys(uploadedFiles).length === 0 || !selectedUser}
               className="primary-btn"
             >
               {isProcessing ? '🔄 Processing...' : '🚀 Start Reconciliation'}
@@ -1110,15 +1164,6 @@ function App() {
             >
               🔄 Reset
             </button>
-
-            {reconciliationResults && (
-              <button 
-                onClick={downloadResults}
-                className="download-btn"
-              >
-                💾 Download Results
-              </button>
-            )}
           </div>
 
           {error && (
@@ -1146,7 +1191,7 @@ function App() {
                 <p>{reconciliationResults.error}</p>
                 {reconciliationResults.requiresLibraries && (
                   <div style={{marginTop: '1rem', padding: '1rem', background: '#e3f2fd', borderRadius: '6px'}}>
-                    <strong>Additional Setup:</strong> For ZIP file processing, please install JSZip: <code>npm install jszip</code>
+                    <strong>File Format Issue:</strong> Please ensure your files are in Excel (.xlsx, .xls) or CSV (.csv) format.
                   </div>
                 )}
               </div>
@@ -1162,14 +1207,20 @@ function App() {
                 border: `1px solid ${reconciliationResults.isDemoData ? '#90caf9' : '#c3e6cb'}`,
                 marginBottom: '2rem'
               }}>
-                <h3>{reconciliationResults.isDemoData ? '🎯 Demo Data Processing Complete' : '✅ Reconciliation Completed Successfully'}</h3>
+                <h3>{reconciliationResults.isDemoData ? '🎯 Demo Reconciliation Complete' : '✅ Reconciliation Completed Successfully'}</h3>
+                {reconciliationResults.userInfo && (
+                  <div style={{marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.5)', borderRadius: '6px'}}>
+                    <p><strong>User:</strong> {reconciliationResults.userInfo.selectedUser}</p>
+                    <p><strong>Period:</strong> {reconciliationResults.userInfo.reconciliationType}</p>
+                    <p><strong>Processed At:</strong> {new Date(reconciliationResults.userInfo.processedAt).toLocaleString()}</p>
+                  </div>
+                )}
                 <p style={{marginTop: '1rem'}}>
-                  Total records processed: {reconciliationResults.totalRecords || 'N/A'}
+                  <strong>Total records processed:</strong> {reconciliationResults.totalRecords || 'N/A'}
                 </p>
-                <p>Processing completed at: {new Date(reconciliationResults.processedAt).toLocaleString()}</p>
                 {reconciliationResults.isDemoData && (
                   <p style={{marginTop: '1rem', fontStyle: 'italic'}}>
-                    This is demo data to show how the system works. Upload your own CSV files to process real data!
+                    This is demo data showing how reconciliation works. Upload your real files to process actual GST data!
                   </p>
                 )}
               </div>
