@@ -1,638 +1,124 @@
 import React, { useState, useEffect } from 'react';
-import ExcelJS from 'exceljs';
 
 function App() {
-  // State variables
+  // State management
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('checking');
+  const [reconciliationType, setReconciliationType] = useState('daily');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [reconciliationResults, setReconciliationResults] = useState(null);
   const [error, setError] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState('checking');
-  const [reconciliationType, setReconciliationType] = useState('monthly');
-  const [selectedUser, setSelectedUser] = useState('');
-  const [dateRange] = useState({ start: '', end: '' }); // Read-only for now
+
+  const users = ['Vinita', 'Laxmi', 'Geetanshu', 'Anil'];
+  const googleScriptUrl = process.env.REACT_APP_GOOGLE_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbya12qFbb91AK_FQO--zdZ-CWnBrywdwEQqqW_frjVfaIuhTH89Gc_b3AAIREXZMRIA/exec';
 
   // Check connection on component mount
   useEffect(() => {
     checkConnection();
   }, []);
 
-  // Check system connection
-  const checkConnection = () => {
+  // File processing utilities (integrated directly)
+  const processFiles = async (files, reconciliationType) => {
     try {
-      setConnectionStatus('connected');
-      console.log('✅ System ready for file processing');
-    } catch (error) {
-      setConnectionStatus('error');
-      console.error('❌ Connection check failed:', error);
-    }
-  };
-
-  // Handle reconciliation process with user validation
-  const handleReconciliation = async () => {
-    // Validate user selection
-    if (!selectedUser) {
-      setError('Please select a user before starting reconciliation.');
-      return;
-    }
-
-    if (Object.keys(uploadedFiles).length === 0) {
-      setError('Please upload at least one file before starting reconciliation.');
-      return;
-    }
-
-    setIsProcessing(true);
-    setError('');
-
-    try {
-      console.log(`🔄 Starting ${reconciliationType} reconciliation for user: ${selectedUser}`);
+      console.log('📁 Processing uploaded files...');
       
-      // Step 1: Process files in browser
-      console.log('🔄 Processing files...');
-      const processedData = await processFiles(uploadedFiles, reconciliationType);
-      
-      if (!processedData.success) {
-        // Show processing results even if no data was extracted
-        setReconciliationResults({
-          success: false,
-          error: processedData.error,
-          processedData: processedData.data || { fileInfo: [] },
-          requiresLibraries: processedData.requiresLibraries
+      const processedData = {
+        ims: [],
+        gstr2a: [],
+        gstr2b: [],
+        purchaseRegister: [],
+        logitaxPurchase: [],
+        fileInfo: []
+      };
+
+      let hasProcessedData = false;
+
+      // Process each uploaded file
+      for (const [fileType, file] of Object.entries(files)) {
+        if (!file) continue;
+
+        console.log(`📊 Analyzing ${fileType}: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+
+        // Store file information
+        processedData.fileInfo.push({
+          type: fileType,
+          name: file.name,
+          size: file.size,
+          lastModified: new Date(file.lastModified).toLocaleString(),
+          mimeType: file.type,
+          status: 'File recognized but processing not implemented'
         });
-        return;
+
+        try {
+          // Attempt to read file content
+          const fileContent = await readFileContent(file, fileType);
+          
+          // Real file processing would go here
+          // For now, we acknowledge the file but don't create fake data
+          console.log(`✅ File ${file.name} read successfully, but processing libraries not available in this environment`);
+          
+        } catch (fileError) {
+          console.error(`❌ Error reading ${fileType}:`, fileError);
+          processedData.fileInfo[processedData.fileInfo.length - 1].status = `Error: ${fileError.message}`;
+        }
       }
 
-      console.log('✅ Files processed successfully');
+      // Check if we have any actual data to process
+      const totalRecords = processedData.ims.length + 
+                          processedData.gstr2a.length + 
+                          processedData.gstr2b.length + 
+                          processedData.purchaseRegister.length + 
+                          processedData.logitaxPurchase.length;
 
-      // Step 2: Perform reconciliation locally
-      console.log('🔄 Performing reconciliation analysis...');
-      
-      const reconciliationResults = performLocalReconciliation(processedData.data, {
-        reconciliationType,
-        selectedUser,
-        dateRange,
-        filesProcessed: processedData.filesProcessed,
-        totalRecords: processedData.totalRecords
-      });
-
-      // Include the processed data in results for display
-      const enhancedResults = {
-        ...reconciliationResults,
-        processedData: processedData.data,
-        userInfo: {
-          selectedUser,
-          reconciliationType,
-          processedAt: new Date().toISOString()
-        }
-      };
-      
-      setReconciliationResults(enhancedResults);
-      console.log('✅ Reconciliation completed successfully');
-
-    } catch (error) {
-      console.error('❌ Reconciliation failed:', error);
-      setError(`Reconciliation failed: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Perform reconciliation locally without external service
-  const performLocalReconciliation = (processedData, config) => {
-    try {
-      console.log('🔍 Analyzing processed data for reconciliation...');
-
-      const reconciliationReport = {
-        summary: {
-          totalRecords: 0,
-          matchedRecords: 0,
-          unmatchedRecords: 0,
-          duplicateRecords: 0,
-          taxDiscrepancies: 0
-        },
-        matches: [],
-        discrepancies: [],
-        duplicates: [],
-        analysis: {}
-      };
-
-      // Combine all data for analysis
-      const allRecords = [];
-      Object.entries(processedData).forEach(([source, records]) => {
-        if (source !== 'fileInfo' && Array.isArray(records)) {
-          records.forEach(record => {
-            allRecords.push({
-              ...record,
-              source: source,
-              recordId: `${source}_${allRecords.length}`
-            });
-          });
-        }
-      });
-
-      reconciliationReport.summary.totalRecords = allRecords.length;
-
-      // Perform basic reconciliation analysis
-      if (allRecords.length > 0) {
-        // Group by potential matching fields (GSTIN, Invoice Number, etc.)
-        const recordGroups = {};
-        
-        allRecords.forEach(record => {
-          const keys = Object.keys(record);
-          let matchingKey = null;
-          
-          // Look for common GST fields
-          const gstinField = keys.find(k => k.toLowerCase().includes('gstin') || k.toLowerCase().includes('gst'));
-          const invoiceField = keys.find(k => k.toLowerCase().includes('invoice') || k.toLowerCase().includes('inv'));
-          const amountField = keys.find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('value'));
-          
-          if (gstinField && record[gstinField]) {
-            matchingKey = record[gstinField];
-          } else if (invoiceField && record[invoiceField]) {
-            matchingKey = record[invoiceField];
-          } else if (amountField && record[amountField]) {
-            matchingKey = record[amountField];
-          }
-          
-          if (matchingKey) {
-            if (!recordGroups[matchingKey]) {
-              recordGroups[matchingKey] = [];
-            }
-            recordGroups[matchingKey].push(record);
-          }
-        });
-
-        // Analyze groups for matches and discrepancies
-        Object.entries(recordGroups).forEach(([key, records]) => {
-          if (records.length > 1) {
-            // Potential matches found
-            reconciliationReport.summary.matchedRecords += records.length;
-            reconciliationReport.matches.push({
-              matchingKey: key,
-              records: records,
-              sources: [...new Set(records.map(r => r.source))]
-            });
-            
-            // Check for duplicates (same source)
-            const sourceGroups = {};
-            records.forEach(record => {
-              if (!sourceGroups[record.source]) {
-                sourceGroups[record.source] = [];
-              }
-              sourceGroups[record.source].push(record);
-            });
-            
-            Object.entries(sourceGroups).forEach(([source, sourceRecords]) => {
-              if (sourceRecords.length > 1) {
-                reconciliationReport.summary.duplicateRecords += sourceRecords.length;
-                reconciliationReport.duplicates.push({
-                  source: source,
-                  matchingKey: key,
-                  records: sourceRecords
-                });
-              }
-            });
-          } else {
-            // Unmatched record
-            reconciliationReport.summary.unmatchedRecords += 1;
-          }
-        });
-
-        // Create analysis summary
-        reconciliationReport.analysis = {
-          dataQuality: {
-            completeness: ((allRecords.length - reconciliationReport.summary.unmatchedRecords) / allRecords.length * 100).toFixed(1),
-            duplicateRate: (reconciliationReport.summary.duplicateRecords / allRecords.length * 100).toFixed(1)
-          },
-          reconciliationRate: (reconciliationReport.summary.matchedRecords / allRecords.length * 100).toFixed(1),
-          recommendations: generateRecommendations(reconciliationReport)
+      if (totalRecords === 0) {
+        return {
+          success: false,
+          error: 'No data could be extracted from uploaded files. This demo environment requires ExcelJS and JSZip libraries for actual file processing. Please deploy to your local environment for full functionality.',
+          data: processedData,
+          filesProcessed: Object.keys(files).length
         };
       }
 
       return {
         success: true,
-        reconciliationReport: reconciliationReport,
-        processedAt: new Date().toISOString(),
-        config: config
-      };
-
-    } catch (error) {
-      console.error('❌ Local reconciliation failed:', error);
-      return {
-        success: false,
-        error: `Reconciliation analysis failed: ${error.message}`
-      };
-    }
-  };
-
-  // Generate recommendations based on reconciliation results
-  const generateRecommendations = (report) => {
-    const recommendations = [];
-    
-    if (report.summary.duplicateRecords > 0) {
-      recommendations.push(`Found ${report.summary.duplicateRecords} duplicate records - consider data deduplication`);
-    }
-    
-    if (report.summary.unmatchedRecords > report.summary.matchedRecords) {
-      recommendations.push('High number of unmatched records - review data formats and matching criteria');
-    }
-    
-    if (report.matches.length > 0) {
-      recommendations.push(`Successfully matched ${report.matches.length} record groups across different sources`);
-    }
-    
-    return recommendations;
-  };
-
-  // Process Excel files using ExcelJS
-  const processExcelFile = async (file, fileType) => {
-    try {
-      console.log(`📊 Processing Excel file for ${fileType}...`);
-      
-      // Read the file as array buffer
-      const arrayBuffer = await readFileAsArrayBuffer(file);
-      
-      // Create a new workbook and load the buffer
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(arrayBuffer);
-      
-      // Get the first worksheet
-      const worksheet = workbook.worksheets[0];
-      if (!worksheet) {
-        throw new Error('Excel file contains no worksheets');
-      }
-      
-      const data = [];
-      let headers = [];
-      
-      // Process rows
-      worksheet.eachRow((row, rowNumber) => {
-        const rowValues = [];
-        
-        // Get all cell values in the row
-        row.eachCell((cell, colNumber) => {
-          let value = cell.value;
-          
-          // Handle different cell types
-          if (value && typeof value === 'object') {
-            if (value.result !== undefined) {
-              // Formula cell
-              value = value.result;
-            } else if (value.text !== undefined) {
-              // Rich text cell
-              value = value.text;
-            }
-          }
-          
-          rowValues[colNumber - 1] = value || '';
-        });
-        
-        if (rowNumber === 1) {
-          // First row is headers
-          headers = rowValues.map(h => String(h).trim()).filter(h => h.length > 0);
-        } else {
-          // Data rows
-          if (rowValues.some(val => val !== '')) { // Skip empty rows
-            const rowObj = {};
-            headers.forEach((header, index) => {
-              const value = rowValues[index] || '';
-              const trimmedValue = String(value).trim();
-              rowObj[header] = isNumericString(trimmedValue) ? parseFloat(trimmedValue) : trimmedValue;
-            });
-            data.push(rowObj);
-          }
-        }
-      });
-      
-      console.log(`✅ Successfully extracted ${data.length} records from Excel file`);
-      
-      return {
-        data: data,
-        error: null
-      };
-      
-    } catch (error) {
-      console.error(`❌ Excel processing error:`, error);
-      return {
-        data: [],
-        error: error.message
-      };
-    }
-  };
-
-  // Process CSV files using built-in JavaScript (robust CSV parser)
-  const processCsvFile = async (file, fileType) => {
-    try {
-      console.log(`📄 Processing CSV file for ${fileType}...`);
-      
-      const text = await readFileAsText(file);
-      
-      if (!text || text.trim().length === 0) {
-        throw new Error('CSV file is empty');
-      }
-
-      // Parse CSV with robust handling of quotes and delimiters
-      const data = parseCSV(text);
-      
-      if (data.length === 0) {
-        throw new Error('CSV file contains no valid data rows');
-      }
-
-      console.log(`✅ Successfully extracted ${data.length} records from CSV file`);
-
-      return {
-        data: data,
-        error: null
-      };
-      
-    } catch (error) {
-      console.error(`❌ CSV processing error:`, error);
-      return {
-        data: [],
-        error: error.message
-      };
-    }
-  };
-
-  // Robust CSV parser that handles quotes, commas, and line breaks
-  const parseCSV = (text) => {
-    const lines = [];
-    const rows = [];
-    let currentRow = [];
-    let currentField = '';
-    let inQuotes = false;
-    let i = 0;
-
-    // First, split into logical rows (handling quoted fields with line breaks)
-    while (i < text.length) {
-      const char = text[i];
-      const nextChar = text[i + 1];
-
-      if (char === '"') {
-        if (inQuotes && nextChar === '"') {
-          // Escaped quote
-          currentField += '"';
-          i += 2;
-          continue;
-        } else {
-          // Toggle quote state
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        // Field separator
-        currentRow.push(currentField.trim());
-        currentField = '';
-      } else if ((char === '\n' || char === '\r') && !inQuotes) {
-        // Row separator
-        if (currentField || currentRow.length > 0) {
-          currentRow.push(currentField.trim());
-          if (currentRow.some(field => field.length > 0)) {
-            lines.push([...currentRow]);
-          }
-          currentRow = [];
-          currentField = '';
-        }
-        // Skip \r\n sequence
-        if (char === '\r' && nextChar === '\n') {
-          i++;
-        }
-      } else {
-        currentField += char;
-      }
-      i++;
-    }
-
-    // Add final row if exists
-    if (currentField || currentRow.length > 0) {
-      currentRow.push(currentField.trim());
-      if (currentRow.some(field => field.length > 0)) {
-        lines.push(currentRow);
-      }
-    }
-
-    if (lines.length < 2) {
-      throw new Error('CSV file must contain at least a header row and one data row');
-    }
-
-    // Convert to objects using first row as headers
-    const headers = lines[0].map(header => String(header).trim());
-    
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i];
-      if (values.some(val => val.length > 0)) { // Skip empty rows
-        const rowObj = {};
-        headers.forEach((header, index) => {
-          const value = values[index] || '';
-          // Convert numeric strings to numbers where appropriate
-          const trimmedValue = String(value).trim();
-          rowObj[header] = isNumericString(trimmedValue) ? parseFloat(trimmedValue) : trimmedValue;
-        });
-        rows.push(rowObj);
-      }
-    }
-
-    return rows;
-  };
-
-  // Helper function to detect numeric strings
-  const isNumericString = (str) => {
-    if (!str || str.length === 0) return false;
-    // Allow numbers with decimals, commas, and negative signs
-    const cleanStr = str.replace(/,/g, '');
-    return !isNaN(cleanStr) && !isNaN(parseFloat(cleanStr)) && isFinite(cleanStr);
-  };
-
-  // Read file as array buffer
-  const readFileAsArrayBuffer = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = (e) => reject(new Error('Failed to read file'));
-      reader.readAsArrayBuffer(file);
-    });
-  };
-
-  // Read file as text
-  const readFileAsText = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = (e) => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    });
-  };
-
-  // Demo data for testing the processing functionality
-  const generateDemoData = (fileType) => {
-    console.log(`🎯 Generating demo data for ${fileType}...`);
-    
-    const baseDemo = [
-      {
-        'Invoice Number': 'INV-2024-001',
-        'Date': '2024-01-15',
-        'GSTIN': '27AABCU9603R1ZX',
-        'Amount': 25000,
-        'CGST': 2250,
-        'SGST': 2250,
-        'IGST': 0,
-        'Total Tax': 4500
-      },
-      {
-        'Invoice Number': 'INV-2024-002', 
-        'Date': '2024-01-16',
-        'GSTIN': '27AABCU9603R1ZY',
-        'Amount': 18000,
-        'CGST': 1620,
-        'SGST': 1620,
-        'IGST': 0,
-        'Total Tax': 3240
-      },
-      {
-        'Invoice Number': 'INV-2024-003',
-        'Date': '2024-01-17', 
-        'GSTIN': '27AABCU9603R1ZZ',
-        'Amount': 32000,
-        'CGST': 0,
-        'SGST': 0,
-        'IGST': 5760,
-        'Total Tax': 5760
-      }
-    ];
-
-    // Customize based on file type
-    return baseDemo.map(item => ({
-      ...item,
-      'Source': fileType.toUpperCase(),
-      'Processed At': new Date().toISOString()
-    }));
-  };
-
-  // Handle demo data generation
-  const handleDemoData = () => {
-    const demoResults = {
-      ims: generateDemoData('ims'),
-      gstr2a: generateDemoData('gstr2a'), 
-      gstr2b: generateDemoData('gstr2b'),
-      purchaseRegister: generateDemoData('purchaseRegister'),
-      logitaxPurchase: generateDemoData('logitaxPurchase'),
-      fileInfo: [
-        {
-          type: 'demo',
-          name: 'Demo Data Generated',
-          size: 0,
-          lastModified: new Date().toLocaleString(),
-          mimeType: 'application/demo',
-          recordsExtracted: 15,
-          status: 'Demo data generated successfully'
-        }
-      ]
-    };
-
-    setReconciliationResults({
-      success: true,
-      processedData: demoResults,
-      totalRecords: 15,
-      processedAt: new Date().toISOString(),
-      isDemoData: true
-    });
-
-    console.log('✅ Demo data generated successfully');
-  };
-
-  // Process all uploaded files
-  const processFiles = async (files, reconciliationType) => {
-    const processedData = { fileInfo: [] };
-    let totalRecords = 0;
-    let filesProcessed = 0;
-    let hasProcessedData = false;
-    let requiresLibraries = false;
-
-    for (const [fileType, file] of Object.entries(files)) {
-      if (!file) continue;
-
-      console.log(`📁 Processing ${fileType}: ${file.name}`);
-      
-      let result = { data: [], error: null };
-      let status = 'Processing...';
-
-      try {
-        // Determine file type and process accordingly
-        const fileName = file.name.toLowerCase();
-        
-        if (fileName.endsWith('.csv')) {
-          result = await processCsvFile(file, fileType);
-        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-          result = await processExcelFile(file, fileType);
-        } else {
-          result = { 
-            data: [], 
-            error: `Unsupported file type. Please use .csv, .xlsx, or .xls files.` 
-          };
-        }
-
-        const extractedData = result.data || [];
-        const errorDetails = result.error;
-
-        // Only add to processed data if we actually extracted something
-        if (extractedData && extractedData.length > 0) {
-          processedData[fileType] = extractedData;
-          hasProcessedData = true;
-          status = `Successfully extracted ${extractedData.length} records`;
-        } else if (errorDetails && errorDetails.includes('convert')) {
-          // Special handling for Excel files that need conversion
-          status = `Excel file detected - please save as CSV format for data extraction`;
-        } else {
-          status = errorDetails || 'No data extracted';
-        }
-
-        totalRecords += extractedData.length;
-        filesProcessed++;
-
-      } catch (error) {
-        console.error(`❌ Error processing ${fileType}:`, error);
-        status = `Error: ${error.message}`;
-      }
-
-      // Add file info
-      processedData.fileInfo.push({
-        type: fileType,
-        name: file.name,
-        size: file.size,
-        lastModified: new Date(file.lastModified).toLocaleString(),
-        mimeType: file.type,
-        recordsExtracted: result.data ? result.data.length : 0,
-        status: status
-      });
-    }
-
-    if (!hasProcessedData) {
-      const hasFiles = Object.keys(files).length > 0;
-      const needsLibraries = requiresLibraries;
-      
-      let errorMessage = 'No data could be extracted from uploaded files.';
-      
-      if (needsLibraries) {
-        errorMessage += ' Please check that your files are in the correct format (Excel or CSV).';
-      } else if (hasFiles) {
-        errorMessage += ' Please check that your files contain valid data and are in the correct format.';
-      } else {
-        errorMessage = 'No files were uploaded for processing.';
-      }
-
-      return {
-        success: false,
-        error: errorMessage,
         data: processedData,
-        requiresLibraries: needsLibraries
+        processedAt: new Date().toISOString(),
+        filesProcessed: Object.keys(files).length
+      };
+
+    } catch (error) {
+      console.error('❌ File processing failed:', error);
+      return {
+        success: false,
+        error: `File processing failed: ${error.message}. Real file processing requires ExcelJS and JSZip libraries in your local environment.`
       };
     }
+  };
 
-    return {
-      success: true,
-      data: processedData,
-      totalRecords: totalRecords,
-      filesProcessed: filesProcessed
-    };
+  // Read file content
+  const readFileContent = async (file, fileType) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        // File is read but we can't process it without proper libraries
+        resolve(e.target.result);
+      };
+      
+      reader.onerror = (e) => {
+        reject(new Error(`Failed to read ${fileType} file: ${file.name}`));
+      };
+
+      // Read based on file type
+      if (fileType === 'ims' && file.name.endsWith('.zip')) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsArrayBuffer(file);
+      }
+    });
   };
 
   // Validate uploaded file
@@ -644,13 +130,13 @@ function App() {
       errors.push('File size exceeds 50MB limit');
     }
 
-    // Check file type - accept Excel and CSV only
+    // Check file type
     const fileName = file.name.toLowerCase();
-    const supportedExtensions = ['.csv', '.xlsx', '.xls'];
-    const isSupported = supportedExtensions.some(ext => fileName.endsWith(ext));
-    
-    if (!isSupported) {
-      errors.push('Please upload Excel (.xlsx, .xls) or CSV (.csv) files only');
+    if (expectedType === 'excel' && !fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+      errors.push('Please upload an Excel file (.xlsx or .xls)');
+    }
+    if (expectedType === 'zip' && !fileName.endsWith('.zip')) {
+      errors.push('Please upload a ZIP file (.zip)');
     }
 
     return {
@@ -659,398 +145,941 @@ function App() {
     };
   };
 
+  // Check Google Apps Script connection
+  const checkConnection = async () => {
+    try {
+      setConnectionStatus('checking');
+      const response = await fetch(`${googleScriptUrl}?action=testConnection`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setConnectionStatus('connected');
+      } else {
+        setConnectionStatus('error');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionStatus('error');
+    }
+  };
+
+  // Handle user login
+  const handleLogin = (user) => {
+    setSelectedUser(user);
+    setIsLoggedIn(true);
+    setError('');
+  };
+
   // Handle file upload
   const handleFileUpload = (fileType, file) => {
-    if (!file) return;
+    if (file) {
+      const validation = validateFile(
+        file, 
+        fileType === 'ims' ? 'zip' : 'excel'
+      );
+      
+      if (validation.isValid) {
+        setUploadedFiles(prev => ({
+          ...prev,
+          [fileType]: file
+        }));
+        setError('');
+      } else {
+        setError(`${fileType.toUpperCase()}: ${validation.errors.join(', ')}`);
+      }
+    }
+  };
 
-    setError('');
-
-    // Validate file - now accepts all supported file types
-    const validation = validateFile(file, 'all');
-    if (!validation.isValid) {
-      setError(validation.errors.join('. '));
+  // Handle reconciliation process
+  const handleReconciliation = async () => {
+    if (Object.keys(uploadedFiles).length === 0) {
+      setError('Please upload at least one file before starting reconciliation.');
       return;
     }
 
-    console.log(`📁 File uploaded for ${fileType}:`, file.name);
-    setUploadedFiles(prev => ({
-      ...prev,
-      [fileType]: file
-    }));
+    setIsProcessing(true);
+    setError('');
+
+    try {
+      // Step 1: Process files in browser
+      console.log('🔄 Processing files...');
+      const processedData = await processFiles(uploadedFiles, reconciliationType);
+      
+      if (!processedData.success) {
+        // Don't proceed with reconciliation if file processing failed
+        setReconciliationResults({
+          success: false,
+          error: processedData.error,
+          processedData: processedData.data || { fileInfo: [] }
+        });
+        return;
+      }
+
+      console.log('✅ Files processed successfully');
+
+      // Step 2: Send to Google Apps Script for reconciliation
+      console.log('🔄 Performing reconciliation...');
+      const reconciliationRequest = {
+        reconciliationType,
+        selectedUser,
+        dateRange,
+        processedData: processedData.data,
+        filesProcessed: processedData.filesProcessed
+      };
+
+      const response = await fetch(`${googleScriptUrl}?action=performReconciliation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reconciliationRequest)
+      });
+
+      const results = await response.json();
+
+      if (results.success) {
+        // Include the processed data in results for file info display
+        const enhancedResults = {
+          ...results,
+          processedData: processedData.data
+        };
+        setReconciliationResults(enhancedResults);
+        console.log('✅ Reconciliation completed successfully');
+      } else {
+        throw new Error(results.error || 'Reconciliation failed');
+      }
+
+    } catch (error) {
+      console.error('❌ Reconciliation failed:', error);
+      setError(`Reconciliation failed: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  // Handle reset
+  // Reset form
   const handleReset = () => {
     setUploadedFiles({});
     setReconciliationResults(null);
     setError('');
-    setIsProcessing(false);
-    console.log('🔄 Application reset');
   };
 
-  return (
-    <div style={{
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-      maxWidth: '1200px',
-      margin: '0 auto',
-      padding: '2rem',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      minHeight: '100vh'
-    }}>
-      <style>
-        {`
+  // Download results
+  const downloadResults = () => {
+    if (!reconciliationResults) return;
+
+    const dataStr = JSON.stringify(reconciliationResults, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `gst-reconciliation-${reconciliationType}-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Login Screen
+  if (!isLoggedIn) {
+    return (
+      <>
+        <style>{`
+          /* GST Reconciliation Tool - Complete Styles */
           * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
           }
-          
-          .container {
+
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+              'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+              sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+          }
+
+          .App {
+            min-height: 100vh;
+            color: #333;
+          }
+
+          /* ==================== LOGIN SCREEN ==================== */
+          .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+          }
+
+          .login-card {
             background: white;
             border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
             padding: 3rem;
-            margin: 2rem 0;
-          }
-          
-          .header {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             text-align: center;
-            margin-bottom: 3rem;
+            max-width: 500px;
+            width: 100%;
+            animation: slideUp 0.6s ease-out;
           }
-          
-          .title {
+
+          @keyframes slideUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          .login-card h1 {
+            color: #667eea;
+            margin-bottom: 2rem;
             font-size: 2.5rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 1rem;
           }
-          
-          .subtitle {
-            font-size: 1.2rem;
-            color: #6b7280;
-            margin-bottom: 1rem;
+
+          .connection-status {
+            margin-bottom: 2rem;
           }
-          
+
           .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.5rem 1rem;
-            border-radius: 25px;
-            font-size: 0.9rem;
-            font-weight: 500;
-          }
-          
-          .status-connected {
-            background: #d1fae5;
-            color: #065f46;
-          }
-          
-          .status-error {
-            background: #fee2e2;
-            color: #991b1b;
-          }
-          
-          .status-checking {
-            background: #dbeafe;
-            color: #1d4ed8;
-          }
-          
-          .upload-section {
-            margin-bottom: 3rem;
-          }
-          
-          .user-section {
-            margin-bottom: 3rem;
-            background: #f8fafc;
-            padding: 2rem;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-          }
-          
-          .section-title {
-            font-size: 1.5rem;
+            padding: 12px 24px;
+            border-radius: 8px;
             font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-          }
-          
-          .upload-grid {
-            display: grid;
-            gap: 1.5rem;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-          }
-          
-          .upload-item {
-            background: #f9fafb;
-            border: 2px dashed #d1d5db;
-            border-radius: 12px;
-            padding: 1.5rem;
+            margin-bottom: 1rem;
             transition: all 0.3s ease;
           }
-          
-          .upload-item:hover {
-            border-color: #6366f1;
-            background: #f0f9ff;
+
+          .status-indicator.checking {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
           }
-          
-          .upload-item label {
-            display: block;
-            font-weight: 500;
-            color: #374151;
-            margin-bottom: 0.75rem;
+
+          .status-indicator.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
           }
-          
-          .upload-item input[type="file"] {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
+
+          .status-indicator.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+          }
+
+          .retry-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+          }
+
+          .retry-btn:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+          }
+
+          .user-selection h3 {
+            margin-bottom: 1.5rem;
+            color: #4a5568;
+            font-size: 1.25rem;
+          }
+
+          .user-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+          }
+
+          .user-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+          }
+
+          .user-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+          }
+
+          /* ==================== MAIN APP SCREEN ==================== */
+          .app-header {
             background: white;
-            font-size: 0.9rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
           }
-          
+
+          .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1400px;
+            margin: 0 auto;
+          }
+
+          .header-content h1 {
+            color: #667eea;
+            font-size: 1.8rem;
+            font-weight: 700;
+          }
+
+          .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+          }
+
+          .user-info span {
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 1.1rem;
+          }
+
+          .logout-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+          }
+
+          .logout-btn:hover {
+            background: #c53030;
+            transform: translateY(-2px);
+          }
+
+          .main-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+          }
+
+          /* ==================== SECTIONS ==================== */
+          section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            animation: fadeIn 0.6s ease-out;
+          }
+
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateY(20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          section h2 {
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+          }
+
+          /* ==================== CONFIG SECTION ==================== */
+          .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+          }
+
+          .config-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+
+          .config-item label {
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 1rem;
+          }
+
+          .config-item select,
+          .config-item input {
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: white;
+          }
+
+          .config-item select:focus,
+          .config-item input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          }
+
+          /* ==================== UPLOAD SECTION ==================== */
+          .upload-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+          }
+
+          .upload-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+          }
+
+          .upload-item label {
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 1rem;
+          }
+
+          .upload-item input[type="file"] {
+            padding: 12px 16px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+            cursor: pointer;
+          }
+
+          .upload-item input[type="file"]:hover {
+            border-color: #667eea;
+            background: #edf2f7;
+          }
+
           .file-info {
-            margin-top: 0.75rem;
-            padding: 0.5rem;
-            background: #dcfce7;
-            color: #166534;
+            background: #d4edda;
+            color: #155724;
+            padding: 8px 12px;
             border-radius: 6px;
             font-size: 0.9rem;
+            font-weight: 500;
+            border: 1px solid #c3e6cb;
           }
-          
-          .actions-section {
-            margin-bottom: 3rem;
+
+          .demo-note {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            color: #856404;
           }
-          
+
+          .processing-error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 2rem;
+            border-radius: 8px;
+            border: 1px solid #f5c6cb;
+            margin-bottom: 2rem;
+          }
+
+          .processing-error h3 {
+            margin-bottom: 1rem;
+            color: #721c24;
+          }
+
+          .processing-error code {
+            background: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #333;
+          }
+
+          /* ==================== ACTIONS SECTION ==================== */
           .action-buttons {
             display: flex;
             gap: 1rem;
-            flex-wrap: wrap;
-            justify-content: center;
             margin-bottom: 1rem;
+            flex-wrap: wrap;
           }
-          
-          .primary-btn, .secondary-btn, .download-btn {
-            padding: 0.875rem 2rem;
+
+          .primary-btn,
+          .secondary-btn,
+          .download-btn {
+            padding: 14px 28px;
             border: none;
-            border-radius: 10px;
+            border-radius: 8px;
+            font-size: 1.1rem;
             font-weight: 600;
-            font-size: 1rem;
             cursor: pointer;
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
             gap: 0.5rem;
           }
-          
+
           .primary-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
             color: white;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);
           }
-          
+
           .primary-btn:hover:not(:disabled) {
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+            box-shadow: 0 6px 20px rgba(72, 187, 120, 0.4);
           }
-          
+
           .primary-btn:disabled {
-            opacity: 0.6;
+            background: #a0aec0;
             cursor: not-allowed;
             transform: none;
+            box-shadow: none;
           }
-          
+
           .secondary-btn {
-            background: #f3f4f6;
-            color: #374151;
-            border: 1px solid #d1d5db;
+            background: #edf2f7;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
           }
-          
+
           .secondary-btn:hover:not(:disabled) {
-            background: #e5e7eb;
-            transform: translateY(-1px);
+            background: #e2e8f0;
+            transform: translateY(-2px);
           }
-          
+
           .download-btn {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
           }
-          
+
           .download-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.6);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
           }
-          
+
           .error-message {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 1rem;
+            background: #fed7d7;
+            color: #9b2c2c;
+            padding: 12px 16px;
             border-radius: 8px;
-            border: 1px solid #fecaca;
+            border: 1px solid #feb2b2;
+            font-weight: 500;
             margin-top: 1rem;
           }
-          
-          .library-info {
-            background: #f0f9ff;
-            border: 1px solid #0ea5e9;
-            border-radius: 12px;
-            padding: 1.5rem;
+
+          /* ==================== RESULTS SECTION ==================== */
+          .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
             margin-bottom: 2rem;
           }
-          
-          .library-info h4 {
-            margin: 0 0 1rem 0;
-            color: #0c4a6e;
-          }
-          
-          .library-info p {
-            margin: 0.5rem 0;
-            color: #075985;
-          }
-          
-          .library-info code {
-            background: #e0f2fe;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-            font-size: 0.9rem;
-          }
-          
-          .results-section {
-            margin-top: 3rem;
-          }
-          
-          .reconciliation-summary {
+
+          .summary-card {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
             border-radius: 12px;
-            margin-bottom: 2rem;
+            padding: 2rem;
+            border: 1px solid #e2e8f0;
           }
-          
-          .reconciliation-summary h3 {
-            margin: 0 0 1rem 0;
+
+          .summary-card h3 {
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+          }
+
+          .summary-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+          }
+
+          .stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+          }
+
+          .stat-label {
+            font-weight: 600;
+            color: #4a5568;
+          }
+
+          .stat-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+            padding: 4px 12px;
+            border-radius: 6px;
+          }
+
+          .stat-value.success {
+            background: #c6f6d5;
+            color: #22543d;
+          }
+
+          .stat-value.warning {
+            background: #fefcbf;
+            color: #744210;
+          }
+
+          .stat-value.error {
+            background: #fed7d7;
+            color: #742a2a;
+          }
+
+          .match-rate {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 120px;
+          }
+
+          .rate-circle {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 4px 20px rgba(72, 187, 120, 0.3);
+          }
+
+          .rate-percentage {
             font-size: 1.5rem;
+            font-weight: 700;
           }
-          
-          .reconciliation-summary p {
-            margin: 0.5rem 0;
+
+          .rate-label {
+            font-size: 0.8rem;
+            font-weight: 500;
           }
-          
-          .data-preview {
+
+          /* ==================== DETAILED RESULTS ==================== */
+          .detailed-results {
+            margin-top: 2rem;
+          }
+
+          .tab-content h3 {
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            padding: 1rem;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+          }
+
+          .matches-list,
+          .mismatches-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
             margin-bottom: 2rem;
           }
-          
-          .data-preview h3 {
-            color: #1f2937;
+
+          .match-item,
+          .mismatch-item {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+          }
+
+          .match-item:hover,
+          .mismatch-item:hover {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+          }
+
+          .match-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 1rem;
           }
-          
+
+          .match-score {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+          }
+
+          .match-status {
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+          }
+
+          .match-status.matched {
+            background: #c6f6d5;
+            color: #22543d;
+          }
+
+          .match-status.partial {
+            background: #fefcbf;
+            color: #744210;
+          }
+
+          .match-status.unmatched {
+            background: #fed7d7;
+            color: #742a2a;
+          }
+
+          .match-details,
+          .mismatch-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+
+          .record-info {
+            font-size: 0.95rem;
+            color: #4a5568;
+          }
+
+          .record-info strong {
+            color: #2d3748;
+            font-weight: 600;
+          }
+
+          .differences {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #fff5f5;
+            border-radius: 6px;
+            border: 1px solid #fed7d7;
+          }
+
+          .difference {
+            font-size: 0.9rem;
+            color: #742a2a;
+            margin-top: 0.25rem;
+          }
+
+          .show-more {
+            text-align: center;
+            padding: 1rem;
+            color: #667eea;
+            font-weight: 600;
+            background: #edf2f7;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+          }
+
+          .no-data {
+            text-align: center;
+            padding: 2rem;
+            color: #a0aec0;
+            font-style: italic;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+          }
+
+          /* ==================== RESPONSIVE DESIGN ==================== */
           @media (max-width: 768px) {
-            .container {
-              padding: 1.5rem;
-              margin: 1rem;
+            .main-content {
+              padding: 1rem;
             }
             
-            .title {
-              font-size: 2rem;
+            .header-content {
+              padding: 0 1rem;
+              flex-direction: column;
+              gap: 1rem;
             }
             
+            .header-content h1 {
+              font-size: 1.5rem;
+            }
+            
+            .config-grid,
             .upload-grid {
               grid-template-columns: 1fr;
             }
             
             .action-buttons {
               flex-direction: column;
-              align-items: center;
             }
             
-            .primary-btn, .secondary-btn, .download-btn {
-              width: 100%;
-              max-width: 300px;
+            .summary-cards {
+              grid-template-columns: 1fr;
+            }
+            
+            .user-buttons {
+              grid-template-columns: 1fr;
+            }
+            
+            .login-card {
+              padding: 2rem;
+            }
+            
+            .login-card h1 {
+              font-size: 2rem;
             }
           }
-        `}
-      </style>
 
-      <div className="container">
-        {/* Header */}
-        <header className="header">
-          <h1 className="title">GST Reconciliation Tool</h1>
-          <p className="subtitle">Reconcile GSTR-2A, GSTR-2B, Purchase Register, and IMS data</p>
-          <div className={`status-indicator status-${connectionStatus}`}>
-            {connectionStatus === 'connected' && '✅ System Ready'}
-            {connectionStatus === 'checking' && '🔄 Checking System...'}
-            {connectionStatus === 'error' && '❌ Connection Error'}
+          @media (max-width: 480px) {
+            .login-card {
+              padding: 1.5rem;
+              margin: 1rem;
+            }
+            
+            section {
+              padding: 1.5rem;
+            }
+            
+            .match-header {
+              flex-direction: column;
+              gap: 0.5rem;
+              align-items: stretch;
+            }
+          }
+        `}</style>
+        <div className="App">
+        <div className="login-container">
+          <div className="login-card">
+            <h1>🧾 GST Reconciliation Tool</h1>
+            
+            <div className="connection-status">
+              <div className={`status-indicator ${connectionStatus}`}>
+                {connectionStatus === 'checking' && '🔄 Checking connection...'}
+                {connectionStatus === 'connected' && '✅ Google Apps Script Connected'}
+                {connectionStatus === 'error' && '❌ Connection Failed'}
+              </div>
+              {connectionStatus === 'error' && (
+                <button onClick={checkConnection} className="retry-btn">
+                  🔄 Retry Connection
+                </button>
+              )}
+            </div>
+
+            {connectionStatus === 'connected' && (
+              <div className="user-selection">
+                <h3>Select User:</h3>
+                <div className="user-buttons">
+                  {users.map(user => (
+                    <button
+                      key={user}
+                      onClick={() => handleLogin(user)}
+                      className="user-btn"
+                    >
+                      👤 {user}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </header>
+        </div>
+      </div>
+    );
+  }
 
-        {/* User Login Section */}
-        <section className="user-section">
-          <h2 className="section-title">👤 User Information</h2>
-          <div style={{display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))'}}>
-            <div>
-              <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: '500'}}>Select User:</label>
+  // Main App Screen
+  return (
+    <div className="App">
+      <header className="app-header">
+        <div className="header-content">
+          <h1>🧾 GST Reconciliation Tool</h1>
+          <div className="user-info">
+            <span>👤 {selectedUser}</span>
+            <button onClick={() => setIsLoggedIn(false)} className="logout-btn">
+              🚪 Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="main-content">
+        {/* Configuration Section */}
+        <section className="config-section">
+          <h2>📋 Reconciliation Configuration</h2>
+          
+          <div className="config-grid">
+            <div className="config-item">
+              <label>📅 Reconciliation Type:</label>
               <select 
-                value={selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '1rem'
-                }}
+                value={reconciliationType} 
+                onChange={(e) => setReconciliationType(e.target.value)}
+                disabled={isProcessing}
               >
-                <option value="">Choose a user...</option>
-                <option value="admin">Admin User</option>
-                <option value="accountant">Accountant</option>
-                <option value="manager">Manager</option>
-                <option value="auditor">Auditor</option>
+                <option value="daily">Daily Reconciliation</option>
+                <option value="weekly">Weekly Reconciliation</option>
+                <option value="monthly">Monthly Reconciliation</option>
               </select>
             </div>
-            <div>
-              <label style={{display: 'block', marginBottom: '0.5rem', fontWeight: '500'}}>Reconciliation Period:</label>
-              <select 
-                value={reconciliationType}
-                onChange={(e) => setReconciliationType(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '1rem'
-                }}
-              >
-                <option value="monthly">Monthly Reconciliation</option>
-                <option value="quarterly">Quarterly Reconciliation</option>
-                <option value="annual">Annual Reconciliation</option>
-                <option value="custom">Custom Period</option>
-              </select>
+
+            <div className="config-item">
+              <label>📅 Start Date:</label>
+              <input 
+                type="date" 
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                disabled={isProcessing}
+              />
+            </div>
+
+            <div className="config-item">
+              <label>📅 End Date:</label>
+              <input 
+                type="date" 
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                disabled={isProcessing}
+              />
             </div>
           </div>
         </section>
 
-        {/* File Processing Information */}
-        <div className="library-info">
-          <h4>📄 File Processing:</h4>
-          <p>• <strong>✅ CSV files (.csv)</strong> → Immediate processing</p>
-          <p>• <strong>✅ Excel files (.xlsx/.xls)</strong> → Full support</p>
-          <p>• <strong>🎯 Demo Data</strong> → Test reconciliation without uploading files</p>
-          <p>• <strong>📊 Results</strong> → View reconciliation analysis directly on this page</p>
-        </div>
-
-        {/* Upload Section */}
+        {/* File Upload Section */}
         <section className="upload-section">
-          <h2 className="section-title">📁 Upload Files</h2>
+          <h2>📁 File Upload</h2>
+          
           <div className="upload-grid">
-            {/* IMS Upload */}
+            {/* IMS Data */}
             <div className="upload-item">
-              <label>🏢 IMS Data (Excel/CSV):</label>
+              <label>📦 IMS Data (ZIP):</label>
               <input 
                 type="file" 
-                accept=".csv,.xlsx,.xls"
+                accept=".zip"
                 onChange={(e) => handleFileUpload('ims', e.target.files[0])}
                 disabled={isProcessing}
               />
@@ -1061,10 +1090,10 @@ function App() {
 
             {/* GSTR-2A */}
             <div className="upload-item">
-              <label>📊 GSTR-2A (Excel/CSV):</label>
+              <label>📊 GSTR-2A (Excel):</label>
               <input 
                 type="file" 
-                accept=".csv,.xlsx,.xls"
+                accept=".xlsx,.xls"
                 onChange={(e) => handleFileUpload('gstr2a', e.target.files[0])}
                 disabled={isProcessing}
               />
@@ -1075,10 +1104,10 @@ function App() {
 
             {/* GSTR-2B */}
             <div className="upload-item">
-              <label>📊 GSTR-2B (Excel/CSV):</label>
+              <label>📊 GSTR-2B (Excel):</label>
               <input 
                 type="file" 
-                accept=".csv,.xlsx,.xls"
+                accept=".xlsx,.xls"
                 onChange={(e) => handleFileUpload('gstr2b', e.target.files[0])}
                 disabled={isProcessing}
               />
@@ -1089,10 +1118,10 @@ function App() {
 
             {/* Purchase Register */}
             <div className="upload-item">
-              <label>📋 Purchase Register (Excel/CSV):</label>
+              <label>📋 Purchase Register (Excel):</label>
               <input 
                 type="file" 
-                accept=".csv,.xlsx,.xls"
+                accept=".xlsx,.xls"
                 onChange={(e) => handleFileUpload('purchaseRegister', e.target.files[0])}
                 disabled={isProcessing}
               />
@@ -1103,10 +1132,10 @@ function App() {
 
             {/* Logitax Purchase */}
             <div className="upload-item">
-              <label>📈 Logitax Purchase (Excel/CSV):</label>
+              <label>📈 Logitax Purchase (Excel):</label>
               <input 
                 type="file" 
-                accept=".csv,.xlsx,.xls"
+                accept=".xlsx,.xls"
                 onChange={(e) => handleFileUpload('logitaxPurchase', e.target.files[0])}
                 disabled={isProcessing}
               />
@@ -1115,6 +1144,29 @@ function App() {
               )}
             </div>
           </div>
+
+          <div className="demo-note">
+            <p><strong>⚠️ File Processing Requirements:</strong></p>
+            <ul>
+              <li>✅ <strong>File Upload:</strong> Reading actual file metadata (name, size, type)</li>
+              <li>❌ <strong>Content Processing:</strong> Requires ExcelJS and JSZip libraries</li>
+              <li>🔧 <strong>For Full Processing:</strong> Deploy to your local environment with proper dependencies</li>
+              <li>🚫 <strong>No Sample Data:</strong> Will show processing errors without real libraries</li>
+            </ul>
+            {Object.keys(uploadedFiles).length > 0 && (
+              <div style={{marginTop: '1rem'}}>
+                <strong>Your Uploaded Files:</strong>
+                {Object.entries(uploadedFiles).map(([type, file]) => (
+                  <div key={type} style={{marginLeft: '1rem', marginTop: '0.5rem'}}>
+                    📄 <strong>{type.toUpperCase()}:</strong> {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                  </div>
+                ))}
+                <div style={{marginTop: '0.5rem', fontSize: '0.9rem', color: '#856404'}}>
+                  ⚠️ These files will be recognized but cannot be processed without ExcelJS/JSZip libraries.
+                </div>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Actions Section */}
@@ -1122,23 +1174,10 @@ function App() {
           <div className="action-buttons">
             <button 
               onClick={handleReconciliation}
-              disabled={isProcessing || Object.keys(uploadedFiles).length === 0 || !selectedUser}
+              disabled={isProcessing || Object.keys(uploadedFiles).length === 0}
               className="primary-btn"
             >
               {isProcessing ? '🔄 Processing...' : '🚀 Start Reconciliation'}
-            </button>
-
-            <button 
-              onClick={handleDemoData}
-              disabled={isProcessing}
-              className="secondary-btn"
-              style={{
-                background: 'linear-gradient(135deg, #4299e1 0%, #3182ce 100%)',
-                color: 'white',
-                border: 'none'
-              }}
-            >
-              🎯 Try Demo Data
             </button>
 
             <button 
@@ -1148,6 +1187,15 @@ function App() {
             >
               🔄 Reset
             </button>
+
+            {reconciliationResults && (
+              <button 
+                onClick={downloadResults}
+                className="download-btn"
+              >
+                💾 Download Results
+              </button>
+            )}
           </div>
 
           {error && (
@@ -1160,141 +1208,205 @@ function App() {
         {/* Results Section */}
         {reconciliationResults && (
           <section className="results-section">
-            <h2 className="section-title">📊 Results</h2>
+            <h2>📊 Reconciliation Results</h2>
             
-            {/* Show error state */}
+            {/* Show error state if no data was processed */}
             {!reconciliationResults.success && (
-              <div style={{
-                background: '#fee2e2',
-                color: '#991b1b',
+              <div className="processing-error" style={{
+                background: '#f8d7da',
+                color: '#721c24',
                 padding: '2rem',
                 borderRadius: '8px',
-                border: '1px solid #fecaca'
-              }}>
-                <h3>❌ File Processing Issue</h3>
-                <p>{reconciliationResults.error}</p>
-                {reconciliationResults.requiresLibraries && (
-                  <div style={{marginTop: '1rem', padding: '1rem', background: '#e3f2fd', borderRadius: '6px'}}>
-                    <strong>File Format Issue:</strong> Please ensure your files are in Excel (.xlsx, .xls) or CSV (.csv) format.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Show successful reconciliation results */}
-            {reconciliationResults.success && (
-              <div className="reconciliation-summary" style={{
-                background: reconciliationResults.isDemoData ? '#e3f2fd' : '#d4edda',
-                color: reconciliationResults.isDemoData ? '#1565c0' : '#155724',
-                padding: '2rem',
-                borderRadius: '8px',
-                border: `1px solid ${reconciliationResults.isDemoData ? '#90caf9' : '#c3e6cb'}`,
+                border: '1px solid #f5c6cb',
                 marginBottom: '2rem'
               }}>
-                <h3>{reconciliationResults.isDemoData ? '🎯 Demo Reconciliation Complete' : '✅ Reconciliation Completed Successfully'}</h3>
-                {reconciliationResults.userInfo && (
-                  <div style={{marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.5)', borderRadius: '6px'}}>
-                    <p><strong>User:</strong> {reconciliationResults.userInfo.selectedUser}</p>
-                    <p><strong>Period:</strong> {reconciliationResults.userInfo.reconciliationType}</p>
-                    <p><strong>Processed At:</strong> {new Date(reconciliationResults.userInfo.processedAt).toLocaleString()}</p>
-                  </div>
-                )}
-                <p style={{marginTop: '1rem'}}>
-                  <strong>Total records processed:</strong> {reconciliationResults.totalRecords || 'N/A'}
+                <h3>❌ File Processing Failed</h3>
+                <p style={{marginTop: '1rem', lineHeight: '1.6'}}>
+                  {reconciliationResults.error}
                 </p>
-                {reconciliationResults.isDemoData && (
-                  <p style={{marginTop: '1rem', fontStyle: 'italic'}}>
-                    This is demo data showing how reconciliation works. Upload your real files to process actual GST data!
-                  </p>
-                )}
+                <div style={{marginTop: '1.5rem', padding: '1rem', background: '#fff3cd', color: '#856404', borderRadius: '6px'}}>
+                  <strong>To fix this:</strong>
+                  <ol style={{marginTop: '0.5rem', marginLeft: '1.5rem'}}>
+                    <li>Copy this code to your local React project</li>
+                    <li>Install dependencies: <code>npm install exceljs jszip</code></li>
+                    <li>Create the fileProcessingService.js with ExcelJS implementation</li>
+                    <li>Import and use the real file processing service</li>
+                  </ol>
+                </div>
               </div>
             )}
-
-            {/* Show processed data preview */}
-            {reconciliationResults?.processedData && (
-              <div className="data-preview" style={{marginBottom: '2rem'}}>
-                <h3>📊 Processed Data Preview</h3>
-                {Object.entries(reconciliationResults.processedData).map(([dataType, data]) => {
-                  if (dataType === 'fileInfo' || !Array.isArray(data) || data.length === 0) return null;
-                  
-                  return (
-                    <div key={dataType} style={{
-                      marginBottom: '1.5rem',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      overflow: 'hidden'
+            
+            {/* File Processing Info */}
+            {reconciliationResults.processedData?.fileInfo && (
+              <div className="file-processing-info" style={{marginBottom: '2rem'}}>
+                <h3>📁 File Analysis</h3>
+                <div className="processed-files-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem'}}>
+                  {reconciliationResults.processedData.fileInfo.map((fileInfo, index) => (
+                    <div key={index} className="processed-file-card" style={{
+                      background: '#f8f9fa', 
+                      padding: '1rem', 
+                      borderRadius: '8px', 
+                      border: '1px solid #e9ecef'
                     }}>
-                      <div style={{
-                        background: '#f7fafc',
-                        padding: '1rem',
-                        borderBottom: '1px solid #e2e8f0',
-                        fontWeight: 'bold',
-                        color: '#2d3748'
-                      }}>
-                        {dataType.toUpperCase()} - {data.length} records
-                      </div>
-                      <div style={{
-                        maxHeight: '300px',
-                        overflow: 'auto',
-                        background: 'white'
-                      }}>
-                        <table style={{
-                          width: '100%',
-                          borderCollapse: 'collapse',
-                          fontSize: '0.9rem'
+                      <div style={{fontWeight: 'bold', color: '#495057'}}>{fileInfo.type.toUpperCase()}</div>
+                      <div style={{fontSize: '0.9rem', color: '#6c757d', marginTop: '0.5rem'}}>
+                        📄 {fileInfo.name}<br/>
+                        📏 {(fileInfo.size / 1024).toFixed(1)} KB<br/>
+                        🕒 {fileInfo.lastModified}<br/>
+                        <span style={{
+                          color: fileInfo.status.includes('Error') ? '#dc3545' : '#fd7e14',
+                          fontWeight: '500'
                         }}>
-                          <thead>
-                            <tr style={{background: '#f8f9fa', position: 'sticky', top: 0}}>
-                              {Object.keys(data[0] || {}).map(header => (
-                                <th key={header} style={{
-                                  padding: '0.75rem',
-                                  textAlign: 'left',
-                                  borderBottom: '1px solid #dee2e6',
-                                  fontWeight: '600',
-                                  color: '#495057'
-                                }}>
-                                  {header}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {data.slice(0, 5).map((row, index) => (
-                              <tr key={index} style={{
-                                borderBottom: '1px solid #f1f3f4'
-                              }}>
-                                {Object.values(row).map((value, cellIndex) => (
-                                  <td key={cellIndex} style={{
-                                    padding: '0.75rem',
-                                    color: '#495057'
-                                  }}>
-                                    {String(value)}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {data.length > 5 && (
-                          <div style={{
-                            padding: '1rem',
-                            textAlign: 'center',
-                            color: '#6c757d',
-                            background: '#f8f9fa',
-                            fontStyle: 'italic'
-                          }}>
-                            ... and {data.length - 5} more records
-                          </div>
-                        )}
+                          ⚠️ {fileInfo.status}
+                        </span>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
+            )}
+            
+            {/* Only show summary if we have successful results */}
+            {reconciliationResults.success && (
+              <>
+                <div className="summary-cards">
+                  <div className="summary-card">
+                    <h3>📈 Summary</h3>
+                    <div className="summary-stats">
+                      <div className="stat">
+                        <span className="stat-label">Total IMS:</span>
+                        <span className="stat-value">{reconciliationResults.summary?.totalIMS || 0}</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-label">Perfect Matches:</span>
+                        <span className="stat-value success">{reconciliationResults.summary?.perfectMatches || 0}</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-label">Partial Matches:</span>
+                        <span className="stat-value warning">{reconciliationResults.summary?.partialMatches || 0}</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-label">No Matches:</span>
+                        <span className="stat-value error">{reconciliationResults.summary?.noMatches || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="summary-card">
+                    <h3>🎯 Match Rate</h3>
+                    <div className="match-rate">
+                      {reconciliationResults.summary?.totalIMS > 0 ? (
+                        <div className="rate-circle">
+                          <span className="rate-percentage">
+                            {Math.round(((reconciliationResults.summary.perfectMatches + reconciliationResults.summary.partialMatches) / reconciliationResults.summary.totalIMS) * 100)}%
+                          </span>
+                          <span className="rate-label">Match Rate</span>
+                        </div>
+                      ) : (
+                        <div style={{textAlign: 'center', color: '#6c757d'}}>
+                          <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>❌</div>
+                          <div>No data to analyze</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Results */}
+                <div className="detailed-results">
+                  <div className="result-tabs">
+                    <div className="tab-content">
+                      <h3>✅ Matched Records ({reconciliationResults.matches?.length || 0})</h3>
+                      {reconciliationResults.matches && reconciliationResults.matches.length > 0 ? (
+                        <div className="matches-list">
+                          {reconciliationResults.matches.slice(0, 10).map((match, index) => (
+                            <div key={index} className="match-item">
+                              <div className="match-header">
+                                <span className="match-score">{match.matchScore || 100}% Match</span>
+                                <span className={`match-status ${match.status?.toLowerCase() || 'matched'}`}>
+                                  {match.matchType || 'Perfect Match'}
+                                </span>
+                              </div>
+                              <div className="match-details">
+                                <div className="record-info">
+                                  <strong>IMS:</strong> {match.imsRecord?.documentNumber} - ₹{match.imsRecord?.totalValue}
+                                  {match.imsRecord?.fileName && (
+                                    <span style={{fontSize: '0.8rem', color: '#6c757d', marginLeft: '0.5rem'}}>
+                                      (from {match.imsRecord.fileName})
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="record-info">
+                                  <strong>Matched:</strong> {match.matchedRecord?.documentNumber} - ₹{match.matchedRecord?.totalValue}
+                                  {match.matchedRecord?.fileName && (
+                                    <span style={{fontSize: '0.8rem', color: '#6c757d', marginLeft: '0.5rem'}}>
+                                      (from {match.matchedRecord.fileName})
+                                    </span>
+                                  )}
+                                </div>
+                                {match.differences && match.differences.length > 0 && (
+                                  <div className="differences">
+                                    <strong>Differences:</strong>
+                                    {match.differences.map((diff, diffIndex) => (
+                                      <div key={diffIndex} className="difference">
+                                        {diff.field}: IMS ₹{diff.ims} vs Matched ₹{diff.matched}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {reconciliationResults.matches.length > 10 && (
+                            <div className="show-more">
+                              ... and {reconciliationResults.matches.length - 10} more matches
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="no-data">No matched records found - requires actual file processing</div>
+                      )}
+
+                      <h3 style={{marginTop: '2rem'}}>❌ Unmatched Records ({reconciliationResults.mismatches?.length || 0})</h3>
+                      {reconciliationResults.mismatches && reconciliationResults.mismatches.length > 0 ? (
+                        <div className="mismatches-list">
+                          {reconciliationResults.mismatches.slice(0, 10).map((mismatch, index) => (
+                            <div key={index} className="mismatch-item">
+                              <div className="mismatch-details">
+                                <div className="record-info">
+                                  <strong>IMS:</strong> {mismatch.imsRecord?.documentNumber} - ₹{mismatch.imsRecord?.totalValue}
+                                  {mismatch.imsRecord?.fileName && (
+                                    <span style={{fontSize: '0.8rem', color: '#6c757d', marginLeft: '0.5rem'}}>
+                                      (from {mismatch.imsRecord.fileName})
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="record-info">
+                                  <strong>GSTIN:</strong> {mismatch.imsRecord?.gstin}
+                                </div>
+                                <div className="record-info">
+                                  <strong>Date:</strong> {mismatch.imsRecord?.documentDate}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {reconciliationResults.mismatches.length > 10 && (
+                            <div className="show-more">
+                              ... and {reconciliationResults.mismatches.length - 10} more unmatched records
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="no-data">No unmatched records found - requires actual file processing</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </section>
         )}
-      </div>
+      </main>
     </div>
   );
 }
