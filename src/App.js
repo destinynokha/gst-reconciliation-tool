@@ -1,4 +1,34 @@
-// Handle reconciliation process (now works locally)
+import React, { useState, useEffect } from 'react';
+import ExcelJS from 'exceljs';
+
+function App() {
+  // State variables
+  const [uploadedFiles, setUploadedFiles] = useState({});
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [reconciliationResults, setReconciliationResults] = useState(null);
+  const [error, setError] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('checking');
+  const [reconciliationType, setReconciliationType] = useState('basic');
+  const [selectedUser, setSelectedUser] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+  // Check connection on component mount
+  useEffect(() => {
+    checkConnection();
+  }, []);
+
+  // Check system connection
+  const checkConnection = () => {
+    try {
+      setConnectionStatus('connected');
+      console.log('✅ System ready for file processing');
+    } catch (error) {
+      setConnectionStatus('error');
+      console.error('❌ Connection check failed:', error);
+    }
+  };
+
+  // Handle reconciliation process (now works locally)
   const handleReconciliation = async () => {
     if (Object.keys(uploadedFiles).length === 0) {
       setError('Please upload at least one file before starting reconciliation.');
@@ -199,208 +229,6 @@
     }
     
     return recommendations;
-  };import React, { useState, useEffect } from 'react';
-import ExcelJS from 'exceljs';
-
-function App() {
-  // State management
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [selectedUser, setSelectedUser] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState('checking');
-  const [reconciliationType, setReconciliationType] = useState('daily');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [uploadedFiles, setUploadedFiles] = useState({});
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [reconciliationResults, setReconciliationResults] = useState(null);
-  const [error, setError] = useState('');
-
-  const users = ['Vinita', 'Laxmi', 'Geetanshu', 'Anil'];
-  const googleScriptUrl = process.env.REACT_APP_GOOGLE_SCRIPT_URL || 'https://script.google.com/macros/s/AKfycbya12qFbb91AK_FQO--zdZ-CWnBrywdwEQqqW_frjVfaIuhTH89Gc_b3AAIREXZMRIA/exec';
-
-  // Check connection on component mount
-  useEffect(() => {
-    checkConnection();
-  }, []);
-
-  // Real file processing without sample data
-  const processFiles = async (files, reconciliationType) => {
-    try {
-      console.log('📁 Processing uploaded files...');
-      
-      const processedData = {
-        ims: [],
-        gstr2a: [],
-        gstr2b: [],
-        purchaseRegister: [],
-        logitaxPurchase: [],
-        fileInfo: []
-      };
-
-      let hasProcessedData = false;
-
-      // Process each uploaded file
-      for (const [fileType, file] of Object.entries(files)) {
-        if (!file) continue;
-
-        console.log(`📊 Analyzing ${fileType}: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
-
-        try {
-          let extractedData = [];
-          let status = 'File read successfully';
-          let errorDetails = null;
-
-          if (fileType === 'ims' && file.name.toLowerCase().endsWith('.zip')) {
-            const result = await processZipFile(file);
-            extractedData = result.data;
-            if (result.error) {
-              errorDetails = result.error;
-              status = 'ZIP file detected but extraction requires JSZip library';
-            }
-          } else if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
-            const result = await processExcelFile(file, fileType);
-            extractedData = result.data;
-            if (result.error) {
-              errorDetails = result.error;
-              status = 'Excel file detected but processing requires ExcelJS/SheetJS library';
-            }
-          } else if (file.name.toLowerCase().endsWith('.csv')) {
-            const result = await processCsvFile(file, fileType);
-            extractedData = result.data;
-            if (result.error) {
-              errorDetails = result.error;
-              status = `CSV processing error: ${result.error}`;
-            }
-          } else {
-            throw new Error('Unsupported file format. Please upload .xlsx, .xls, .csv, or .zip files.');
-          }
-
-          // Only add to processed data if we actually extracted something
-          if (extractedData && extractedData.length > 0) {
-            processedData[fileType] = extractedData;
-            hasProcessedData = true;
-            status = `Successfully extracted ${extractedData.length} records`;
-          } else if (errorDetails && errorDetails.includes('convert')) {
-            // Special handling for Excel files that need conversion
-            status = `Excel file detected - please save as CSV format for data extraction`;
-          }
-
-          // Store file information
-          processedData.fileInfo.push({
-            type: fileType,
-            name: file.name,
-            size: file.size,
-            lastModified: new Date(file.lastModified).toLocaleString(),
-            mimeType: file.type,
-            recordsExtracted: extractedData ? extractedData.length : 0,
-            status: status,
-            error: errorDetails
-          });
-
-          console.log(`✅ ${fileType}: ${status}`);
-          
-        } catch (fileError) {
-          console.error(`❌ Error processing ${fileType}:`, fileError);
-          processedData.fileInfo.push({
-            type: fileType,
-            name: file.name,
-            size: file.size,
-            lastModified: new Date(file.lastModified).toLocaleString(),
-            mimeType: file.type,
-            recordsExtracted: 0,
-            status: `Error: ${fileError.message}`,
-            error: fileError.message
-          });
-        }
-      }
-
-      // Check if we have any actual data to process
-      const totalRecords = processedData.ims.length + 
-                          processedData.gstr2a.length + 
-                          processedData.gstr2b.length + 
-                          processedData.purchaseRegister.length + 
-                          processedData.logitaxPurchase.length;
-
-      if (totalRecords === 0) {
-        // Check if files were uploaded but couldn't be processed due to missing libraries
-        const hasFiles = processedData.fileInfo.length > 0;
-        const needsLibraries = processedData.fileInfo.some(info => 
-          info.status.includes('requires') || info.status.includes('library')
-        );
-
-        let errorMessage = 'No data could be extracted from uploaded files.';
-        
-        if (needsLibraries) {
-          errorMessage += ' Some files may require additional libraries. For ZIP files, install JSZip: npm install jszip';
-        } else if (hasFiles) {
-          errorMessage += ' Please check that your files contain valid data and are in the correct format.';
-        }
-
-        return {
-          success: false,
-          error: errorMessage,
-          data: processedData,
-          filesProcessed: Object.keys(files).length,
-          requiresLibraries: needsLibraries
-        };
-      }
-
-      return {
-        success: true,
-        data: processedData,
-        processedAt: new Date().toISOString(),
-        filesProcessed: Object.keys(files).length,
-        totalRecords: totalRecords
-      };
-
-    } catch (error) {
-      console.error('❌ File processing failed:', error);
-      return {
-        success: false,
-        error: `File processing failed: ${error.message}`
-      };
-    }
-  };
-
-  // Process ZIP files (requires JSZip - install with: npm install jszip)
-  const processZipFile = async (file) => {
-    try {
-      console.log('📦 Processing ZIP file...');
-      
-      // For now, ZIP processing requires additional setup
-      // This will be enabled once JSZip is installed
-      
-      return {
-        data: [],
-        error: 'ZIP file detected. To enable ZIP processing, please install JSZip: npm install jszip'
-      };
-      
-    } catch (error) {
-      console.error(`❌ ZIP processing error:`, error);
-      return {
-        data: [],
-        error: error.message
-      };
-    }
-  };
-
-  // Helper function to process CSV text
-  const processCsvText = async (text) => {
-    try {
-      if (!text || text.trim().length === 0) {
-        throw new Error('CSV content is empty');
-      }
-
-      const data = parseCSV(text);
-      return {
-        data: data,
-        error: null
-      };
-    } catch (error) {
-      return {
-        data: [],
-        error: error.message
-      };
-    }
   };
 
   // Process Excel files using ExcelJS
@@ -601,6 +429,48 @@ function App() {
     return !isNaN(cleanStr) && !isNaN(parseFloat(cleanStr)) && isFinite(cleanStr);
   };
 
+  // Process ZIP files (requires JSZip - install with: npm install jszip)
+  const processZipFile = async (file) => {
+    try {
+      console.log('📦 Processing ZIP file...');
+      
+      // For now, ZIP processing requires additional setup
+      // This will be enabled once JSZip is installed
+      
+      return {
+        data: [],
+        error: 'ZIP file detected. To enable ZIP processing, please install JSZip: npm install jszip'
+      };
+      
+    } catch (error) {
+      console.error(`❌ ZIP processing error:`, error);
+      return {
+        data: [],
+        error: error.message
+      };
+    }
+  };
+
+  // Read file as array buffer
+  const readFileAsArrayBuffer = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(new Error('Failed to read file'));
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  // Read file as text
+  const readFileAsText = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+  };
+
   // Demo data for testing the processing functionality
   const generateDemoData = (fileType) => {
     console.log(`🎯 Generating demo data for ${fileType}...`);
@@ -677,37 +547,106 @@ function App() {
 
     console.log('✅ Demo data generated successfully');
   };
-  const readFileAsArrayBuffer = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        resolve(e.target.result);
-      };
-      
-      reader.onerror = (e) => {
-        reject(new Error(`Failed to read file: ${file.name}`));
-      };
 
-      reader.readAsArrayBuffer(file);
-    });
-  };
+  // Process all uploaded files
+  const processFiles = async (files, reconciliationType) => {
+    const processedData = { fileInfo: [] };
+    let totalRecords = 0;
+    let filesProcessed = 0;
+    let hasProcessedData = false;
+    let requiresLibraries = false;
 
-  // Read file as text
-  const readFileAsText = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        resolve(e.target.result);
-      };
-      
-      reader.onerror = (e) => {
-        reject(new Error(`Failed to read file: ${file.name}`));
-      };
+    for (const [fileType, file] of Object.entries(files)) {
+      if (!file) continue;
 
-      reader.readAsText(file, 'UTF-8');
-    });
+      console.log(`📁 Processing ${fileType}: ${file.name}`);
+      
+      let result = { data: [], error: null };
+      let status = 'Processing...';
+
+      try {
+        // Determine file type and process accordingly
+        const fileName = file.name.toLowerCase();
+        
+        if (fileName.endsWith('.csv')) {
+          result = await processCsvFile(file, fileType);
+        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+          result = await processExcelFile(file, fileType);
+        } else if (fileName.endsWith('.zip')) {
+          result = await processZipFile(file);
+          if (result.error && result.error.includes('install')) {
+            requiresLibraries = true;
+          }
+        } else {
+          result = { 
+            data: [], 
+            error: `Unsupported file type. Please use .csv, .xlsx, .xls, or .zip files.` 
+          };
+        }
+
+        const extractedData = result.data || [];
+        const errorDetails = result.error;
+
+        // Only add to processed data if we actually extracted something
+        if (extractedData && extractedData.length > 0) {
+          processedData[fileType] = extractedData;
+          hasProcessedData = true;
+          status = `Successfully extracted ${extractedData.length} records`;
+        } else if (errorDetails && errorDetails.includes('convert')) {
+          // Special handling for Excel files that need conversion
+          status = `Excel file detected - please save as CSV format for data extraction`;
+        } else {
+          status = errorDetails || 'No data extracted';
+        }
+
+        totalRecords += extractedData.length;
+        filesProcessed++;
+
+      } catch (error) {
+        console.error(`❌ Error processing ${fileType}:`, error);
+        status = `Error: ${error.message}`;
+      }
+
+      // Add file info
+      processedData.fileInfo.push({
+        type: fileType,
+        name: file.name,
+        size: file.size,
+        lastModified: new Date(file.lastModified).toLocaleString(),
+        mimeType: file.type,
+        recordsExtracted: result.data ? result.data.length : 0,
+        status: status
+      });
+    }
+
+    if (!hasProcessedData) {
+      const hasFiles = Object.keys(files).length > 0;
+      const needsLibraries = requiresLibraries;
+      
+      let errorMessage = 'No data could be extracted from uploaded files.';
+      
+      if (needsLibraries) {
+        errorMessage += ' Some files may require additional libraries. For ZIP files, install JSZip: npm install jszip';
+      } else if (hasFiles) {
+        errorMessage += ' Please check that your files contain valid data and are in the correct format.';
+      } else {
+        errorMessage = 'No files were uploaded for processing.';
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        data: processedData,
+        requiresLibraries: needsLibraries
+      };
+    }
+
+    return {
+      success: true,
+      data: processedData,
+      totalRecords: totalRecords,
+      filesProcessed: filesProcessed
+    };
   };
 
   // Validate uploaded file
@@ -734,128 +673,36 @@ function App() {
     };
   };
 
-  // Check Google Apps Script connection
-  const checkConnection = async () => {
-    try {
-      setConnectionStatus('checking');
-      const response = await fetch(`${googleScriptUrl}?action=testConnection`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setConnectionStatus('connected');
-      } else {
-        setConnectionStatus('error');
-      }
-    } catch (error) {
-      console.error('Connection test failed:', error);
-      setConnectionStatus('error');
-    }
-  };
-
-  // Handle user login
-  const handleLogin = (user) => {
-    setSelectedUser(user);
-    setIsLoggedIn(true);
-    setError('');
-  };
-
   // Handle file upload
   const handleFileUpload = (fileType, file) => {
-    if (file) {
-      const validation = validateFile(
-        file, 
-        fileType === 'ims' ? 'zip' : 'excel'
-      );
-      
-      if (validation.isValid) {
-        setUploadedFiles(prev => ({
-          ...prev,
-          [fileType]: file
-        }));
-        setError('');
-      } else {
-        setError(`${fileType.toUpperCase()}: ${validation.errors.join(', ')}`);
-      }
-    }
-  };
+    if (!file) return;
 
-  // Handle reconciliation process
-  const handleReconciliation = async () => {
-    if (Object.keys(uploadedFiles).length === 0) {
-      setError('Please upload at least one file before starting reconciliation.');
+    setError('');
+
+    // Validate file
+    const validation = validateFile(file, 'excel'); // Accept Excel, CSV, and ZIP for all types
+    if (!validation.isValid) {
+      setError(validation.errors.join('. '));
       return;
     }
 
-    setIsProcessing(true);
-    setError('');
-
-    try {
-      // Step 1: Process files in browser
-      console.log('🔄 Processing files...');
-      const processedData = await processFiles(uploadedFiles, reconciliationType);
-      
-      if (!processedData.success) {
-        // Show processing results even if no data was extracted
-        setReconciliationResults({
-          success: false,
-          error: processedData.error,
-          processedData: processedData.data || { fileInfo: [] },
-          requiresLibraries: processedData.requiresLibraries
-        });
-        return;
-      }
-
-      console.log('✅ Files processed successfully');
-
-      // Step 2: Send to Google Apps Script for reconciliation
-      console.log('🔄 Performing reconciliation...');
-      const reconciliationRequest = {
-        reconciliationType,
-        selectedUser,
-        dateRange,
-        processedData: processedData.data,
-        filesProcessed: processedData.filesProcessed,
-        totalRecords: processedData.totalRecords
-      };
-
-      const response = await fetch(`${googleScriptUrl}?action=performReconciliation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(reconciliationRequest)
-      });
-
-      const results = await response.json();
-
-      if (results.success) {
-        // Include the processed data in results for file info display
-        const enhancedResults = {
-          ...results,
-          processedData: processedData.data
-        };
-        setReconciliationResults(enhancedResults);
-        console.log('✅ Reconciliation completed successfully');
-      } else {
-        throw new Error(results.error || 'Reconciliation failed');
-      }
-
-    } catch (error) {
-      console.error('❌ Reconciliation failed:', error);
-      setError(`Reconciliation failed: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
+    console.log(`📁 File uploaded for ${fileType}:`, file.name);
+    setUploadedFiles(prev => ({
+      ...prev,
+      [fileType]: file
+    }));
   };
 
-  // Reset form
+  // Handle reset
   const handleReset = () => {
     setUploadedFiles({});
     setReconciliationResults(null);
     setError('');
+    setIsProcessing(false);
+    console.log('🔄 Application reset');
   };
 
-  // Download results
+  // Download results as JSON
   const downloadResults = () => {
     if (!reconciliationResults) return;
 
@@ -864,571 +711,316 @@ function App() {
     const url = URL.createObjectURL(dataBlob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `gst-reconciliation-${reconciliationType}-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `gst_reconciliation_results_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  // Login Screen
-  if (!isLoggedIn) {
-    return (
-      <>
-        <style>{`
-          /* GST Reconciliation Tool - Complete Styles */
+  return (
+    <div style={{
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      maxWidth: '1200px',
+      margin: '0 auto',
+      padding: '2rem',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      minHeight: '100vh'
+    }}>
+      <style>
+        {`
           * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
           }
-
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-              'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-              sans-serif;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-          }
-
-          .App {
-            min-height: 100vh;
-            color: #333;
-          }
-
-          /* ==================== LOGIN SCREEN ==================== */
-          .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 2rem;
-          }
-
-          .login-card {
+          
+          .container {
             background: white;
             border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
             padding: 3rem;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            margin: 2rem 0;
+          }
+          
+          .header {
             text-align: center;
-            max-width: 500px;
-            width: 100%;
-            animation: slideUp 0.6s ease-out;
+            margin-bottom: 3rem;
           }
-
-          @keyframes slideUp {
-            from {
-              opacity: 0;
-              transform: translateY(30px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-
-          .login-card h1 {
-            color: #667eea;
-            margin-bottom: 2rem;
+          
+          .title {
             font-size: 2.5rem;
             font-weight: 700;
-          }
-
-          .connection-status {
-            margin-bottom: 2rem;
-          }
-
-          .status-indicator {
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
-          }
-
-          .status-indicator.checking {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-          }
-
-          .status-indicator.connected {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-          }
-
-          .status-indicator.error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-          }
-
-          .retry-btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-          }
-
-          .retry-btn:hover {
-            background: #5a67d8;
-            transform: translateY(-2px);
-          }
-
-          .user-selection h3 {
-            margin-bottom: 1.5rem;
-            color: #4a5568;
-            font-size: 1.25rem;
-          }
-
-          .user-buttons {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-          }
-
-          .user-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 16px 24px;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
           }
-
-          .user-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+          
+          .subtitle {
+            font-size: 1.2rem;
+            color: #6b7280;
+            margin-bottom: 1rem;
           }
-
-          /* ==================== MAIN APP SCREEN ==================== */
-          .app-header {
-            background: white;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            padding: 1rem 2rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-          }
-
-          .header-content {
-            display: flex;
-            justify-content: space-between;
+          
+          .status-indicator {
+            display: inline-flex;
             align-items: center;
-            max-width: 1400px;
-            margin: 0 auto;
-          }
-
-          .header-content h1 {
-            color: #667eea;
-            font-size: 1.8rem;
-            font-weight: 700;
-          }
-
-          .user-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-          }
-
-          .user-info span {
-            font-weight: 600;
-            color: #4a5568;
-            font-size: 1.1rem;
-          }
-
-          .logout-btn {
-            background: #e53e3e;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-          }
-
-          .logout-btn:hover {
-            background: #c53030;
-            transform: translateY(-2px);
-          }
-
-          .main-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-          }
-
-          /* ==================== SECTIONS ==================== */
-          section {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-            animation: fadeIn 0.6s ease-out;
-          }
-
-          @keyframes fadeIn {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-
-          section h2 {
-            color: #2d3748;
-            margin-bottom: 1.5rem;
-            font-size: 1.5rem;
-            font-weight: 700;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 0.5rem;
-          }
-
-          /* ==================== CONFIG SECTION ==================== */
-          .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-          }
-
-          .config-item {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-          }
-
-          .config-item label {
-            font-weight: 600;
-            color: #4a5568;
-            font-size: 1rem;
-          }
-
-          .config-item select,
-          .config-item input {
-            padding: 12px 16px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            background: white;
-          }
-
-          .config-item select:focus,
-          .config-item input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-          }
-
-          /* ==================== UPLOAD SECTION ==================== */
-          .upload-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 2rem;
-          }
-
-          .upload-item {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-          }
-
-          .upload-item label {
-            font-weight: 600;
-            color: #4a5568;
-            font-size: 1rem;
-          }
-
-          .upload-item input[type="file"] {
-            padding: 12px 16px;
-            border: 2px dashed #cbd5e0;
-            border-radius: 8px;
-            font-size: 0.95rem;
-            transition: all 0.3s ease;
-            background: #f7fafc;
-            cursor: pointer;
-          }
-
-          .upload-item input[type="file"]:hover {
-            border-color: #667eea;
-            background: #edf2f7;
-          }
-
-          .file-info {
-            background: #d4edda;
-            color: #155724;
-            padding: 8px 12px;
-            border-radius: 6px;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
             font-size: 0.9rem;
             font-weight: 500;
-            border: 1px solid #c3e6cb;
           }
-
-          /* ==================== ACTIONS SECTION ==================== */
+          
+          .status-connected {
+            background: #d1fae5;
+            color: #065f46;
+          }
+          
+          .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+          }
+          
+          .status-checking {
+            background: #dbeafe;
+            color: #1d4ed8;
+          }
+          
+          .upload-section {
+            margin-bottom: 3rem;
+          }
+          
+          .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          
+          .upload-grid {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          }
+          
+          .upload-item {
+            background: #f9fafb;
+            border: 2px dashed #d1d5db;
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+          }
+          
+          .upload-item:hover {
+            border-color: #6366f1;
+            background: #f0f9ff;
+          }
+          
+          .upload-item label {
+            display: block;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.75rem;
+          }
+          
+          .upload-item input[type="file"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: white;
+            font-size: 0.9rem;
+          }
+          
+          .file-info {
+            margin-top: 0.75rem;
+            padding: 0.5rem;
+            background: #dcfce7;
+            color: #166534;
+            border-radius: 6px;
+            font-size: 0.9rem;
+          }
+          
+          .actions-section {
+            margin-bottom: 3rem;
+          }
+          
           .action-buttons {
             display: flex;
             gap: 1rem;
-            margin-bottom: 1rem;
             flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 1rem;
           }
-
-          .primary-btn,
-          .secondary-btn,
-          .download-btn {
-            padding: 14px 28px;
+          
+          .primary-btn, .secondary-btn, .download-btn {
+            padding: 0.875rem 2rem;
             border: none;
-            border-radius: 8px;
-            font-size: 1.1rem;
+            border-radius: 10px;
             font-weight: 600;
+            font-size: 1rem;
             cursor: pointer;
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
             gap: 0.5rem;
           }
-
+          
           .primary-btn {
-            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3);
-          }
-
-          .primary-btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(72, 187, 120, 0.4);
-          }
-
-          .primary-btn:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-          }
-
-          .secondary-btn {
-            background: #edf2f7;
-            color: #4a5568;
-            border: 2px solid #e2e8f0;
-          }
-
-          .secondary-btn:hover:not(:disabled) {
-            background: #e2e8f0;
-            transform: translateY(-2px);
-          }
-
-          .download-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
           }
-
+          
+          .primary-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+          }
+          
+          .primary-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+          }
+          
+          .secondary-btn {
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+          }
+          
+          .secondary-btn:hover:not(:disabled) {
+            background: #e5e7eb;
+            transform: translateY(-1px);
+          }
+          
+          .download-btn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+          }
+          
           .download-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.6);
           }
-
+          
           .error-message {
-            background: #fed7d7;
-            color: #9b2c2c;
-            padding: 12px 16px;
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 1rem;
             border-radius: 8px;
-            border: 1px solid #feb2b2;
-            font-weight: 500;
+            border: 1px solid #fecaca;
             margin-top: 1rem;
           }
-
+          
           .library-info {
-            background: #e6fffa;
-            color: #234e52;
-            padding: 16px;
-            border-radius: 8px;
-            border: 1px solid #81e6d9;
-            margin-top: 1rem;
-            font-size: 0.95rem;
-            line-height: 1.5;
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
           }
-
+          
           .library-info h4 {
-            margin-bottom: 0.5rem;
-            color: #2c7a7b;
+            margin: 0 0 1rem 0;
+            color: #0c4a6e;
           }
-
+          
+          .library-info p {
+            margin: 0.5rem 0;
+            color: #075985;
+          }
+          
           .library-info code {
-            background: #234e52;
-            color: #81e6d9;
-            padding: 2px 6px;
+            background: #e0f2fe;
+            padding: 0.25rem 0.5rem;
             border-radius: 4px;
-            font-family: 'Courier New', monospace;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.9rem;
           }
-
-          /* ==================== RESPONSIVE DESIGN ==================== */
+          
+          .results-section {
+            margin-top: 3rem;
+          }
+          
+          .reconciliation-summary {
+            border-radius: 12px;
+            margin-bottom: 2rem;
+          }
+          
+          .reconciliation-summary h3 {
+            margin: 0 0 1rem 0;
+            font-size: 1.5rem;
+          }
+          
+          .reconciliation-summary p {
+            margin: 0.5rem 0;
+          }
+          
+          .data-preview {
+            margin-bottom: 2rem;
+          }
+          
+          .data-preview h3 {
+            color: #1f2937;
+            margin-bottom: 1rem;
+          }
+          
           @media (max-width: 768px) {
-            .main-content {
-              padding: 1rem;
+            .container {
+              padding: 1.5rem;
+              margin: 1rem;
             }
             
-            .header-content {
-              padding: 0 1rem;
-              flex-direction: column;
-              gap: 1rem;
+            .title {
+              font-size: 2rem;
             }
             
-            .header-content h1 {
-              font-size: 1.5rem;
-            }
-            
-            .config-grid,
             .upload-grid {
               grid-template-columns: 1fr;
             }
             
             .action-buttons {
               flex-direction: column;
+              align-items: center;
             }
             
-            .user-buttons {
-              grid-template-columns: 1fr;
-            }
-            
-            .login-card {
-              padding: 2rem;
-            }
-            
-            .login-card h1 {
-              font-size: 2rem;
+            .primary-btn, .secondary-btn, .download-btn {
+              width: 100%;
+              max-width: 300px;
             }
           }
-        `}</style>
-        <div className="App">
-          <div className="login-container">
-            <div className="login-card">
-              <h1>🧾 GST Reconciliation Tool</h1>
-              
-              <div className="connection-status">
-                <div className={`status-indicator ${connectionStatus}`}>
-                  {connectionStatus === 'checking' && '🔄 Checking connection...'}
-                  {connectionStatus === 'connected' && '✅ Google Apps Script Connected'}
-                  {connectionStatus === 'error' && '❌ Connection Failed'}
-                </div>
-                {connectionStatus === 'error' && (
-                  <button onClick={checkConnection} className="retry-btn">
-                    🔄 Retry Connection
-                  </button>
-                )}
-              </div>
+        `}
+      </style>
 
-              {connectionStatus === 'connected' && (
-                <div className="user-selection">
-                  <h3>Select User:</h3>
-                  <div className="user-buttons">
-                    {users.map(user => (
-                      <button
-                        key={user}
-                        onClick={() => handleLogin(user)}
-                        className="user-btn"
-                      >
-                        👤 {user}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+      <div className="container">
+        {/* Header */}
+        <header className="header">
+          <h1 className="title">GST Reconciliation Tool</h1>
+          <p className="subtitle">Advanced file processing with Excel, CSV, and ZIP support</p>
+          <div className={`status-indicator status-${connectionStatus}`}>
+            {connectionStatus === 'connected' && '✅ System Ready'}
+            {connectionStatus === 'checking' && '🔄 Checking System...'}
+            {connectionStatus === 'error' && '❌ Connection Error'}
           </div>
+        </header>
+
+        {/* File Processing Information */}
+        <div className="library-info">
+          <h4>📄 File Processing Capabilities:</h4>
+          <p>• <strong>✅ CSV files (.csv)</strong> → Fully supported and processed immediately</p>
+          <p>• <strong>✅ Excel files (.xlsx/.xls)</strong> → Fully supported using ExcelJS library</p>
+          <p>• <strong>⚠️ ZIP files (.zip)</strong> → To enable: <code>npm install jszip</code></p>
+          <p>• <strong>🎯 Demo Data</strong> → Click "Try Demo Data" to see the system in action!</p>
         </div>
-      </>
-    );
-  }
 
-  // Main App Screen
-  return (
-    <div className="App">
-      <header className="app-header">
-        <div className="header-content">
-          <h1>🧾 GST Reconciliation Tool</h1>
-          <div className="user-info">
-            <span>👤 {selectedUser}</span>
-            <button onClick={() => setIsLoggedIn(false)} className="logout-btn">
-              🚪 Logout
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="main-content">
-        {/* Configuration Section */}
-        <section className="config-section">
-          <h2>📋 Reconciliation Configuration</h2>
-          
-          <div className="config-grid">
-            <div className="config-item">
-              <label>📅 Reconciliation Type:</label>
-              <select 
-                value={reconciliationType} 
-                onChange={(e) => setReconciliationType(e.target.value)}
-                disabled={isProcessing}
-              >
-                <option value="daily">Daily Reconciliation</option>
-                <option value="weekly">Weekly Reconciliation</option>
-                <option value="monthly">Monthly Reconciliation</option>
-              </select>
-            </div>
-
-            <div className="config-item">
-              <label>📅 Start Date:</label>
-              <input 
-                type="date" 
-                value={dateRange.start}
-                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                disabled={isProcessing}
-              />
-            </div>
-
-            <div className="config-item">
-              <label>📅 End Date:</label>
-              <input 
-                type="date" 
-                value={dateRange.end}
-                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                disabled={isProcessing}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* File Upload Section */}
+        {/* Upload Section */}
         <section className="upload-section">
-          <h2>📁 File Upload</h2>
-          
+          <h2 className="section-title">📁 Upload Files</h2>
           <div className="upload-grid">
-            {/* IMS Data */}
-            <div className="upload-item">
-              <label>📦 IMS Data (ZIP):</label>
-              <input 
-                type="file" 
-                accept=".zip"
-                onChange={(e) => handleFileUpload('ims', e.target.files[0])}
-                disabled={isProcessing}
-              />
-              {uploadedFiles.ims && (
-                <div className="file-info">✅ {uploadedFiles.ims.name}</div>
-              )}
-            </div>
-
             {/* GSTR-2A */}
             <div className="upload-item">
               <label>📊 GSTR-2A (Excel/CSV):</label>
@@ -1485,15 +1077,6 @@ function App() {
               )}
             </div>
           </div>
-
-          {/* File Processing Information */}
-          <div className="library-info">
-            <h4>📄 File Processing Capabilities:</h4>
-            <p>• <strong>✅ CSV files (.csv)</strong> → Fully supported and processed immediately</p>
-            <p>• <strong>✅ Excel files (.xlsx/.xls)</strong> → Fully supported using ExcelJS library</p>
-            <p>• <strong>⚠️ ZIP files (.zip)</strong> → To enable: <code>npm install jszip</code></p>
-            <p>• <strong>🎯 Demo Data</strong> → Click "Try Demo Data" to see the system in action!</p>
-          </div>
         </section>
 
         {/* Actions Section */}
@@ -1548,58 +1131,24 @@ function App() {
         {/* Results Section */}
         {reconciliationResults && (
           <section className="results-section">
-            <h2>📊 Reconciliation Results</h2>
+            <h2 className="section-title">📊 Results</h2>
             
-            {/* Show error state if no data was processed */}
+            {/* Show error state */}
             {!reconciliationResults.success && (
-              <div className="processing-error" style={{
-                background: '#f8d7da',
-                color: '#721c24',
+              <div style={{
+                background: '#fee2e2',
+                color: '#991b1b',
                 padding: '2rem',
                 borderRadius: '8px',
-                border: '1px solid #f5c6cb',
-                marginBottom: '2rem'
+                border: '1px solid #fecaca'
               }}>
                 <h3>❌ File Processing Issue</h3>
-                <p style={{marginTop: '1rem', lineHeight: '1.6'}}>
-                  {reconciliationResults.error}
-                </p>
+                <p>{reconciliationResults.error}</p>
                 {reconciliationResults.requiresLibraries && (
                   <div style={{marginTop: '1rem', padding: '1rem', background: '#e3f2fd', borderRadius: '6px'}}>
                     <strong>Additional Setup:</strong> For ZIP file processing, please install JSZip: <code>npm install jszip</code>
                   </div>
                 )}
-              </div>
-            )}
-            
-            {/* File Processing Info */}
-            {reconciliationResults.processedData?.fileInfo && (
-              <div className="file-processing-info" style={{marginBottom: '2rem'}}>
-                <h3>📁 File Analysis</h3>
-                <div className="processed-files-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem'}}>
-                  {reconciliationResults.processedData.fileInfo.map((fileInfo, index) => (
-                    <div key={index} className="processed-file-card" style={{
-                      background: fileInfo.error ? '#f8d7da' : '#f8f9fa', 
-                      padding: '1rem', 
-                      borderRadius: '8px', 
-                      border: `1px solid ${fileInfo.error ? '#f5c6cb' : '#e9ecef'}`
-                    }}>
-                      <div style={{fontWeight: 'bold', color: '#495057'}}>{fileInfo.type.toUpperCase()}</div>
-                      <div style={{fontSize: '0.9rem', color: '#6c757d', marginTop: '0.5rem'}}>
-                        📄 {fileInfo.name}<br/>
-                        📏 {(fileInfo.size / 1024).toFixed(1)} KB<br/>
-                        🕒 {fileInfo.lastModified}<br/>
-                        📊 Records: {fileInfo.recordsExtracted}<br/>
-                        <span style={{
-                          color: fileInfo.error ? '#dc3545' : fileInfo.status.includes('Successfully') ? '#28a745' : '#fd7e14',
-                          fontWeight: '500'
-                        }}>
-                          {fileInfo.error ? '❌' : fileInfo.recordsExtracted > 0 ? '✅' : '⚠️'} {fileInfo.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -1710,7 +1259,7 @@ function App() {
             )}
           </section>
         )}
-      </main>
+      </div>
     </div>
   );
 }
