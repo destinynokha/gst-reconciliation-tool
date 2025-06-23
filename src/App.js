@@ -1407,7 +1407,8 @@ function App() {
           </section>
         )}
       </main>
-          </div>
+    </div> {/* closes <div className="App"> */}
+  );
 }
 
 export default App;
