@@ -10,7 +10,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState('checking');
   const [reconciliationType, setReconciliationType] = useState('monthly');
   const [selectedUser, setSelectedUser] = useState('');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [dateRange] = useState({ start: '', end: '' }); // Read-only for now
 
   // Check connection on component mount
   useEffect(() => {
@@ -686,22 +686,6 @@ function App() {
     setError('');
     setIsProcessing(false);
     console.log('🔄 Application reset');
-  };
-
-  // Download results as JSON
-  const downloadResults = () => {
-    if (!reconciliationResults) return;
-
-    const dataStr = JSON.stringify(reconciliationResults, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `gst_reconciliation_results_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   return (
